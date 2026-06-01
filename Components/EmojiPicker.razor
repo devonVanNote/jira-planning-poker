@@ -1,0 +1,26 @@
+<div class="emoji-picker">
+    @foreach (var emoji in Emojis)
+    {
+        <button class="emoji-btn @(Selected == emoji ? "emoji-btn--selected" : "")"
+                type="button"
+                title="@emoji"
+                @onclick="() => Pick(emoji)">@emoji</button>
+    }
+</div>
+
+@code {
+    private static readonly string[] Emojis =
+    [
+        "🐱", "🐶", "🦊", "🐸", "🐼", "🦁", "🐨", "🦄",
+        "🤖", "👻", "🧙", "🦸", "🚀", "🌟", "⚡", "🎲"
+    ];
+
+    [Parameter] public string? Selected { get; set; }
+    [Parameter] public EventCallback<string?> OnSelect { get; set; }
+
+    private async Task Pick(string emoji)
+    {
+        string? next = Selected == emoji ? null : emoji;
+        await OnSelect.InvokeAsync(next);
+    }
+}

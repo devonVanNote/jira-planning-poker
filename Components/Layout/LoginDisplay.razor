@@ -1,0 +1,16 @@
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <span class="login-display text-white-50 small me-2">@context.User.Identity?.Name</span>
+        <button class="btn btn-sm btn-outline-light" @onclick="SignOut">Sign out</button>
+    </Authorized>
+    <NotAuthorized>
+        <a href="MicrosoftIdentity/Account/SignIn" class="btn btn-sm btn-outline-light">Sign in</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private void SignOut() =>
+        Navigation.NavigateTo("MicrosoftIdentity/Account/SignOut", forceLoad: true);
+}

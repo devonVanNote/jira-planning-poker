@@ -1,0 +1,111 @@
+@inject IConfiguration Config
+
+@if (Item != null)
+{
+    <div class="current-item">
+        <div class="current-item__header">
+            <div class="current-item__header-left">
+                <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__key">
+                    @Item.Key
+                </a>
+                @if (!string.IsNullOrEmpty(Item.IssueType))
+                {
+                    <span class="badge current-item__type-badge">@Item.IssueType</span>
+                }
+                @if (!string.IsNullOrEmpty(Item.Priority))
+                {
+                    <span class="badge current-item__priority-badge priority-@(Item.Priority?.ToLower().Replace(" ", "-"))">
+                        @PriorityIcon(Item.Priority) @Item.Priority
+                    </span>
+                }
+            </div>
+            <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__open-link">
+                Open in JIRA ↗
+            </a>
+        </div>
+
+        <div class="current-item__summary">@Item.Summary</div>
+
+        <div class="current-item__fields">
+            @if (!string.IsNullOrEmpty(Item.Status))
+            {
+                <div class="current-item__field">
+                    <span class="current-item__field-label">Status</span>
+                    <span class="badge status-badge">@Item.Status</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Item.SprintName))
+            {
+                <div class="current-item__field">
+                    <span class="current-item__field-label">Sprint</span>
+                    <span class="badge sprint-badge">@Item.SprintName</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Item.AssigneeName))
+            {
+                <div class="current-item__field">
+                    <span class="current-item__field-label">Assignee</span>
+                    <span>@Item.AssigneeName</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Item.ReporterName))
+            {
+                <div class="current-item__field">
+                    <span class="current-item__field-label">Reporter</span>
+                    <span>@Item.ReporterName</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Item.CurrentPoints))
+            {
+                <div class="current-item__field">
+                    <span class="current-item__field-label">Points</span>
+                    <strong>@Item.CurrentPoints</strong>
+                </div>
+            }
+            @if (Item.Labels.Count > 0)
+            {
+                <div class="current-item__field current-item__field--labels">
+                    <span class="current-item__field-label">Labels</span>
+                    <div class="current-item__labels">
+                        @foreach (string label in Item.Labels)
+                        {
+                            <span class="badge current-item__label-badge">@label</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(Item.Description))
+        {
+            <div class="current-item__description">
+                <div class="current-item__field-label mb-1">Description</div>
+                <div class="current-item__description-body">@((MarkupString)(Item.Description ?? ""))</div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="current-item current-item--empty">
+        <p>⏳ Waiting for the host to select an item...</p>
+    </div>
+}
+
+@code {
+    [Parameter] public JiraItem? Item { get; set; }
+
+    private string JiraUrl => Item != null
+        ? $"{(Config["Jira:BaseUrl"] ?? "").TrimEnd('/')}/browse/{Item.Key}"
+        : "#";
+
+    private static string PriorityIcon(string? priority) => priority switch
+    {
+        "Highest" => "🔴",
+        "High"    => "🟠",
+        "Medium"  => "🟡",
+        "Low"     => "🔵",
+        "Lowest"  => "⚪",
+        _         => ""
+    };
+}

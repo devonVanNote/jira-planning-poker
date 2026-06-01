@@ -1,0 +1,62 @@
+<div class="participant-list">
+    @foreach (Participant p in Participants)
+    {
+        <div class="participant @(p.HasVoted && !p.IsObserver ? "participant--voted" : "") @(p.HandRaised ? "participant--hand-raised" : "") @(p.IsObserver ? "participant--observer" : "") @(p.IsNudged ? "participant--nudged" : "")">
+            <span class="participant__name">
+                @if (!string.IsNullOrEmpty(p.Emoji))
+                {
+                    <span class="participant__emoji">@p.Emoji</span>
+                }
+                @p.Name
+            </span>
+            @if (p.HandRaised)
+            {
+                <span class="raised-hand-indicator" title="@p.Name has a question">✋</span>
+                @if (OnDismissHand.HasDelegate)
+                {
+                    <button class="btn-answered" title="Mark as answered"
+                            @onclick="() => OnDismissHand.InvokeAsync(p.Id)"
+                            @onclick:stopPropagation="true">
+                        ✓
+                    </button>
+                }
+            }
+            @if (OnNudge.HasDelegate && !VotesRevealed && !p.HasVoted && !p.IsObserver)
+            {
+                <button class="btn-nudge @(p.IsNudged ? "btn-nudge--sent" : "")"
+                        title="@(p.IsNudged ? "Nudge sent" : $"Nudge {p.Name}")"
+                        @onclick="() => OnNudge.InvokeAsync(p.Id)"
+                        @onclick:stopPropagation="true">
+                    @(p.IsNudged ? "👋✓" : "👋")
+                </button>
+            }
+            @if (p.IsObserver)
+            {
+                <span class="badge bg-secondary participant__vote observer-badge" title="Observer">👁</span>
+            }
+            else if (VotesRevealed && p.Vote != null && p.Vote != "voted")
+            {
+                <span class="badge participant__vote">@p.Vote</span>
+            }
+            else if (p.HasVoted)
+            {
+                <span class="badge bg-success participant__vote">✓</span>
+            }
+            else
+            {
+                <span class="badge bg-secondary participant__vote">...</span>
+            }
+        </div>
+    }
+    @if (!Participants.Any())
+    {
+        <p class="text-muted small">No participants yet.</p>
+    }
+</div>
+
+@code {
+    [Parameter] public List<Participant> Participants { get; set; } = [];
+    [Parameter] public bool VotesRevealed { get; set; }
+    [Parameter] public EventCallback<string> OnDismissHand { get; set; }
+    [Parameter] public EventCallback<string> OnNudge { get; set; }
+}

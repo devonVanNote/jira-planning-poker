@@ -1,0 +1,745 @@
+@page "/host/{SessionId}"
+@attribute [Authorize]
+@implements IAsyncDisposable
+
+<PageTitle>Host — @SessionId | Planning Poker</PageTitle>
+
+@if (Session == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-3 text-muted">Loading session @SessionId...</p>
+    </div>
+}
+else if (!_roleChosen)
+{
+    <div class="role-picker-overlay">
+        <div class="role-picker">
+            <h4 class="role-picker__title">How would you like to participate?</h4>
+            <p class="role-picker__subtitle text-muted">Session <strong>@Session.Id</strong></p>
+            <div class="mb-3">
+                <div class="sidebar-section-title mb-2" style="text-align:left">Your Avatar</div>
+                <EmojiPicker Selected="@_hostEmoji" OnSelect="e => { _hostEmoji = e; Sessions.SetEmoji(SessionId, UserId, e); }" />
+            </div>
+            <div class="role-picker__options">
+                <button class="role-option" @onclick="() => ChooseRole(false)">
+                    <span class="role-option__icon">🗳️</span>
+                    <span class="role-option__label">Voter</span>
+                    <span class="role-option__desc">Host and cast votes</span>
+                </button>
+                <button class="role-option" @onclick="() => ChooseRole(true)">
+                    <span class="role-option__icon">👁️</span>
+                    <span class="role-option__label">Observer</span>
+                    <span class="role-option__desc">Host without voting</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="host-session">
+        <div class="session-header">
+            <div>
+                <span class="session-header__label">Session</span>
+                <strong class="session-header__id">@Session.Id</strong>
+                @if (!string.IsNullOrEmpty(Session.Name))
+                {
+                    <span class="session-header__name">@Session.Name</span>
+                }
+            </div>
+            <div class="badge bg-warning text-dark">Host View</div>
+            <div class="session-header__link ms-auto">
+                <span class="me-2 small">Share with participants:</span>
+                <code class="session-header__url">@ParticipantUrl</code>
+                <button class="btn btn-sm btn-light ms-2" @onclick="CopyLink">
+                    @(Copied ? "Copied ✓" : "Copy Session Link")
+                </button>
+            </div>
+            <button class="btn btn-sm btn-danger ms-3" @onclick="EndSession">
+                End Session
+            </button>
+        </div>
+
+        <div class="host-layout">
+            <div class="host-sidebar">
+                <div class="sidebar-section-title mb-2">Items (@Session.Items.Count)</div>
+
+                <div class="add-item-row mb-2">
+                    <input type="text" class="form-control form-control-sm add-item-row__input"
+                           placeholder="Add by JIRA link or key…"
+                           @bind="_addItemInput" @bind:event="oninput"
+                           @onkeydown="OnAddItemKeyDown"
+                           disabled="@_addItemLoading"
+                           maxlength="300" />
+                    <button class="btn btn-sm btn-outline-primary add-item-row__btn"
+                            @onclick="AddItemByLink"
+                            disabled="@(string.IsNullOrWhiteSpace(_addItemInput) || _addItemLoading)">
+                        @if (_addItemLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                        else { <span>+</span> }
+                    </button>
+                </div>
+                @if (_addItemError != null)
+                {
+                    <div class="alert alert-danger py-1 px-2 small mb-2">@_addItemError</div>
+                }
+
+                <div class="add-item-row mb-2">
+                    <input type="text" class="form-control form-control-sm add-item-row__input"
+                           placeholder="Search items…"
+                           @bind="_hostSearch" @bind:event="oninput" maxlength="100" />
+                    <button class="btn btn-sm btn-outline-secondary add-item-row__btn"
+                            @onclick="CopyJql" title="Copy JIRA query to clipboard">
+                        @(_jqlCopied ? "✓" : "JQL")
+                    </button>
+                </div>
+                @if (_hostAllStatuses.Count > 0)
+                {
+                    <div class="status-filter mb-1">
+                        <span class="status-filter__label">Status:</span>
+                        @foreach (string status in _hostAllStatuses)
+                        {
+                            bool chk = _hostStatusFilter.Contains(status);
+                            <label class="status-filter__option">
+                                <input type="checkbox" checked="@chk" @onchange="() => ToggleHostStatus(status)" />
+                                @status
+                            </label>
+                        }
+                    </div>
+                }
+                @if (_hostAllTypes.Count > 0)
+                {
+                    <div class="status-filter mb-1">
+                        <span class="status-filter__label">Type:</span>
+                        @foreach (string t in _hostAllTypes)
+                        {
+                            bool chk = _hostTypeFilter.Contains(t);
+                            <label class="status-filter__option">
+                                <input type="checkbox" checked="@chk" @onchange="() => ToggleHostType(t)" />
+                                <span class="badge @IssueTypeBadgeClass(t)">@IssueTypeEmoji(t) @t</span>
+                            </label>
+                        }
+                    </div>
+                }
+
+                <div class="item-list">
+                    @foreach (JiraItem item in OrderedItems)
+                    {
+                        bool isActive = Session.CurrentItem?.Key == item.Key;
+                        bool isPriority = Session.PriorityItems.Contains(item.Key);
+                        <div class="item-list__item @(isActive ? "item-list__item--active" : "") @(isPriority ? "item-list__item--priority" : "")"
+                             @onclick="() => SelectItem(item)">
+                            <div class="d-flex align-items-center gap-2">
+                                @if (isPriority)
+                                {
+                                    <span class="priority-flag" title="Priority">❗</span>
+                                }
+                                <span class="item-key">@item.Key</span>
+                                @if (!string.IsNullOrEmpty(item.CurrentPoints))
+                                {
+                                    <span class="badge bg-secondary text-white">@item.CurrentPoints</span>
+                                }
+                                @if (!string.IsNullOrEmpty(Session.AgreedPoints) && isActive)
+                                {
+                                    <span class="badge bg-success">✓ @Session.AgreedPoints</span>
+                                }
+                            </div>
+                            <div class="item-summary">@item.Summary</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="resize-handle" data-side="left"></div>
+            <div class="host-main">
+                <div class="mb-3">
+                    <div class="sidebar-section-title mb-2">Current Item</div>
+                    <CurrentItem Item="@Session.CurrentItem" />
+                </div>
+
+                @if (Session.CurrentItem != null)
+                {
+                    <div class="role-toggle mb-3">
+                        <div class="sidebar-section-title mb-1">Your Role</div>
+                        <div class="role-toggle__row">
+                            <span class="role-toggle__label">
+                                @if (_hostIsObserver)
+                                {
+                                    <span>👁️ Observer</span>
+                                }
+                                else
+                                {
+                                    <span>🗳️ Voter</span>
+                                }
+                            </span>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => _hostIsObserver = !_hostIsObserver">
+                                Switch to @(_hostIsObserver ? "Voter" : "Observer")
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (!_hostIsObserver)
+                    {
+                        <div class="host-vote-section">
+                            <div class="sidebar-section-title mb-2">
+                                Your Vote
+                                @if (Session.HostHasVoted && !Session.VotesRevealed)
+                                {
+                                    <span class="badge bg-success ms-2">Voted ✓</span>
+                                }
+                            </div>
+                            @if (!Session.VotesRevealed)
+                            {
+                                <p class="text-muted small mb-2">⌨️ Press <kbd>1</kbd>–<kbd>7</kbd> to vote by keyboard</p>
+                                <VotingDeck SelectedValue="@null" OnSelect="CastVote" />
+                            }
+                            else if (Session.HostHasVoted)
+                            {
+                                <div class="host-voted-display">
+                                    Your vote: <span class="vote-badge">@Session.HostVote</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="host-controls">
+                        @if (!Session.VotesRevealed)
+                        {
+                            <button class="btn btn-primary btn-lg" @onclick="RevealVotes"
+                                    disabled="@(!AnyVotesCast)">
+                                🎉 Reveal Votes
+                            </button>
+                            <div class="text-muted small">
+                                @VotedCount / @TotalCount voted
+                                @if (!AnyVotesCast)
+                                {
+                                    <span> — waiting for votes</span>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-warning" @onclick="ResetVoting">
+                                🔄 Re-vote
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="NextItem"
+                                    disabled="@(NextJiraItem == null)">
+                                Next Item →
+                            </button>
+                        }
+                    </div>
+
+                    <VoteResults Session="@Session" IsHost="true" OnAgreedPoints="SetAgreedPoints" />
+                    @if (_jiraStatus != null)
+                    {
+                        <div class="alert @(_jiraSuccess ? "alert-success" : "alert-danger") py-1 px-3 small mt-2">
+                            @_jiraStatus
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="alert alert-info">
+                        👆 Select an item from the left panel to start voting.
+                    </div>
+                }
+            </div>
+            <div class="resize-handle" data-side="right"></div>
+            <div class="host-participants">
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <div class="sidebar-section-title mb-0">
+                        Participants (@Session.Participants.Count(p => !p.IsObserver))
+                        @if (Session.Participants.Any(p => p.IsObserver))
+                        {
+                            <span class="ms-1 text-muted small">+ @Session.Participants.Count(p => p.IsObserver) 👁</span>
+                        }
+                    </div>
+                    <button class="btn btn-secondary btn-sm" @onclick="StartHostTour">
+                        ❓ Guide
+                    </button>
+                </div>
+
+                @{
+                    List<Participant> raisedHands = Session.Participants.Where(p => p.HandRaised).ToList();
+                }
+                @if (raisedHands.Count > 0)
+                {
+                    <div class="raised-hands-alert">
+                        <span class="raised-hands-alert__icon">✋</span>
+                        <span class="raised-hands-alert__label">
+                            @raisedHands.Count question@(raisedHands.Count == 1 ? "" : "s")
+                        </span>
+                        <div class="raised-hands-alert__list">
+                            @foreach (Participant p in raisedHands)
+                            {
+                                <div class="raised-hands-alert__row">
+                                    <span>@p.Name</span>
+                                    <button class="btn-answered" @onclick="() => DismissHand(p.Id)">
+                                        ✓ Answered
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <ParticipantList Participants="@Session.Participants"
+                                 VotesRevealed="@Session.VotesRevealed"
+                                 OnDismissHand="DismissHand"
+                                 OnNudge="NudgeParticipant" />
+                @if (Session.Participants.Count == 0)
+                {
+                    <div class="text-muted small mt-2">
+                        Waiting for participants to join via the session link above.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_hostTourActive)
+    {
+        <div class="tour-backdrop" @onclick="CloseHostTour">
+            <div class="tour-modal" @onclick:stopPropagation="true">
+                <button class="tour-modal__close" @onclick="CloseHostTour" aria-label="Close tour">✕</button>
+
+                @{ var step = HostTourSteps[_hostTourStep]; }
+
+                <div class="tour-step">
+                    <div class="tour-step__icon">@step.Icon</div>
+                    <span class="tour-step__location">@step.Location</span>
+                    <h4 class="tour-step__title">@step.Title</h4>
+                    <p class="tour-step__desc">@step.Description</p>
+                </div>
+
+                <div class="tour-progress">
+                    @for (int i = 0; i < HostTourSteps.Length; i++)
+                    {
+                        int idx = i;
+                        <button class="tour-dot @(i == _hostTourStep ? "tour-dot--active" : "")"
+                                @onclick="() => _hostTourStep = idx"
+                                aria-label="Step @(i+1)" />
+                    }
+                </div>
+
+                <div class="tour-nav">
+                    <button class="btn btn-outline-secondary btn-sm"
+                            @onclick="PrevHostStep"
+                            disabled="@(_hostTourStep == 0)">← Prev</button>
+                    <span class="tour-nav__count">@(_hostTourStep + 1) / @HostTourSteps.Length</span>
+                    @if (_hostTourStep < HostTourSteps.Length - 1)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="NextHostStep">Next →</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success btn-sm" @onclick="CloseHostTour">Got it ✓</button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string SessionId { get; set; } = "";
+    [Inject] private ISessionService Sessions { get; set; } = default!;
+    [Inject] private IJiraService JiraService { get; set; } = default!;
+    [Inject] private IUserPreferenceService UserPrefs { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private PokerSession? Session { get; set; }
+    private string? HostVote { get; set; }
+    private string? _hostEmoji;
+    private string _hostSearch = "";
+    private string _addItemInput = "";
+    private bool _addItemLoading;
+    private string? _addItemError;
+    private HashSet<string> _hostStatusFilter = [];
+    private HashSet<string> _hostTypeFilter = [];
+    private List<string> _hostAllStatuses = [];
+    private List<string> _hostAllTypes = [];
+    private bool Copied { get; set; }
+    private bool _jqlCopied;
+    private bool _roleChosen;
+    private bool _hostIsObserver;
+    private bool _hostTourActive;
+    private int _hostTourStep;
+    private string UserId { get; set; } = "";
+    private string? _jiraStatus;
+    private bool _jiraSuccess;
+
+    private string ParticipantUrl => Navigation.ToAbsoluteUri($"session/{SessionId}").ToString();
+    private int VotedCount => (Session?.Participants.Count(p => p.HasVoted && !p.IsObserver) ?? 0) +
+                               (Session?.HostHasVoted == true ? 1 : 0);
+    private int TotalCount => (Session?.Participants.Count(p => !p.IsObserver) ?? 0) +
+                               (_hostIsObserver ? 0 : 1);
+    private bool AnyVotesCast => VotedCount > 0;
+
+    private IEnumerable<JiraItem> OrderedItems => Session?.Items
+        .Select((item, idx) => (item, idx))
+        .Where(x => (string.IsNullOrEmpty(_hostSearch) ||
+                     x.item.Key.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase) ||
+                     x.item.Summary.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase)) &&
+                    (_hostStatusFilter.Count == 0 || _hostStatusFilter.Contains(x.item.Status)) &&
+                    (_hostTypeFilter.Count == 0 || _hostTypeFilter.Contains(x.item.IssueType ?? "")))
+        .OrderByDescending(x => Session.PriorityItems.Contains(x.item.Key))
+        .ThenBy(x => x.idx)
+        .Select(x => x.item) ?? [];
+
+    private JiraItem? NextJiraItem
+    {
+        get
+        {
+            if (Session == null || Session.CurrentItem == null) return Session?.Items.FirstOrDefault();
+            int idx = Session.Items.FindIndex(i => i.Key == Session.CurrentItem.Key);
+            return idx >= 0 && idx + 1 < Session.Items.Count ? Session.Items[idx + 1] : null;
+        }
+    }
+
+    private DotNetObjectReference<HostSession>? _dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState auth = await AuthState;
+        UserId =
+            auth.User.FindFirst("oid")?.Value ??
+            auth.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value ??
+            auth.User.FindFirst("sub")?.Value ?? "";
+
+        Session = Sessions.GetMaskedSession(SessionId);
+        InitHostFilters();
+        Sessions.SessionChanged += OnSessionChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("keyboardVoting.init", _dotNetRef);
+            await JS.InvokeVoidAsync("columnResizer.init", ".host-layout");
+        }
+    }
+
+    [JSInvokable]
+    public void HandleVoteKey(string key)
+    {
+        if (_hostIsObserver || Session?.CurrentItem == null || Session.VotesRevealed)
+        {
+            return;
+        }
+        if (int.TryParse(key, out int idx) && idx >= 1 && idx <= StoryPoints.Values.Length)
+        {
+            CastVote(StoryPoints.Values[idx - 1]);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private HashSet<string> _raisedHandIds = [];
+
+    private void OnSessionChanged(string sessionId)
+    {
+        if (!sessionId.Equals(SessionId, StringComparison.OrdinalIgnoreCase)) return;
+
+        HashSet<string> prevRaised = _raisedHandIds;
+        Session = Sessions.GetMaskedSession(SessionId);
+        if (Session?.VotesRevealed == false && Session?.HostHasVoted == false) HostVote = null;
+        InitHostFilters(addNewOnly: true);
+
+        _raisedHandIds = [.. Session?.Participants.Where(p => p.HandRaised).Select(p => p.Id) ?? []];
+        bool newHandRaised = _raisedHandIds.Any(id => !prevRaised.Contains(id));
+        if (newHandRaised)
+            _ = JS.InvokeVoidAsync("raiseHandSound.play");
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void InitHostFilters(bool addNewOnly = false)
+    {
+        List<string> statuses = Session?.Items
+            .Select(i => i.Status).Where(s => !string.IsNullOrEmpty(s))
+            .Distinct().OrderBy(s => s).ToList() ?? [];
+        List<string> types = Session?.Items
+            .Select(i => i.IssueType ?? "").Where(t => !string.IsNullOrEmpty(t))
+            .Concat(["Bug", "Story", "Task"]).Distinct().OrderBy(t => t).ToList() ?? [];
+
+        if (!addNewOnly)
+        {
+            _hostAllStatuses = statuses;
+            _hostAllTypes = types;
+            _hostStatusFilter = [.. statuses];
+            _hostTypeFilter = [.. types];
+        }
+        else
+        {
+            foreach (string s in statuses.Where(s => !_hostAllStatuses.Contains(s)))
+            {
+                _hostAllStatuses.Add(s);
+                _hostStatusFilter.Add(s);
+            }
+            foreach (string t in types.Where(t => !_hostAllTypes.Contains(t)))
+            {
+                _hostAllTypes.Add(t);
+                _hostTypeFilter.Add(t);
+            }
+        }
+    }
+
+    private void ToggleHostStatus(string status)
+    {
+        if (!_hostStatusFilter.Remove(status)) _hostStatusFilter.Add(status);
+    }
+
+    private void ToggleHostType(string type)
+    {
+        if (!_hostTypeFilter.Remove(type)) _hostTypeFilter.Add(type);
+    }
+
+    private static string IssueTypeEmoji(string t) => t switch
+    {
+        "Bug" => "🐛", "Story" => "📖", "Task" => "✅", _ => ""
+    };
+
+    private static string IssueTypeBadgeClass(string t) => t switch
+    {
+        "Bug" => "issue-type-badge--bug",
+        "Story" => "issue-type-badge--story",
+        "Task" => "issue-type-badge--task",
+        _ => "issue-type-badge"
+    };
+
+    private static string? ParseJiraKey(string input)
+    {
+        input = input.Trim();
+        System.Text.RegularExpressions.Match m =
+            System.Text.RegularExpressions.Regex.Match(input, @"[A-Z]+-\d+");
+        return m.Success ? m.Value : null;
+    }
+
+    private async Task OnAddItemKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddItemByLink();
+    }
+
+    private async Task AddItemByLink()
+    {
+        string? key = ParseJiraKey(_addItemInput);
+        if (key == null)
+        {
+            _addItemError = "Could not find a JIRA key (e.g. PROJ-123) in the input.";
+            return;
+        }
+        if (Session?.Items.Any(i => i.Key == key) == true)
+        {
+            _addItemError = $"{key} is already in the list.";
+            return;
+        }
+
+        _addItemLoading = true;
+        _addItemError = null;
+        StateHasChanged();
+
+        try
+        {
+            JiraItem? item = await JiraService.GetItemByKeyAsync(key);
+            if (item == null)
+            {
+                _addItemError = $"Could not load {key} from JIRA. Check the key and your connection.";
+                return;
+            }
+            Sessions.AddItem(SessionId, UserId, item);
+            _addItemInput = "";
+        }
+        catch (Exception ex)
+        {
+            _addItemError = ex.Message;
+        }
+        finally
+        {
+            _addItemLoading = false;
+        }
+    }
+
+    private record TourStep(string Icon, string Title, string Description, string Location);
+
+    private static readonly TourStep[] HostTourSteps =
+    [
+        new("📋", "Items List",
+            "The left panel lists all sprint items. Click any item to select it for voting — this sets it as the current item for all participants.",
+            "Left panel"),
+        new("🔗", "Add Items by Link",
+            "Paste a JIRA URL or issue key into the input above the search box to add any item on the fly during the session.",
+            "Left panel"),
+        new("🔍", "Search & Filter",
+            "Use the search box to filter items by key or summary. The JQL button copies the current JIRA query to your clipboard.",
+            "Left panel"),
+        new("❗", "Priority Items",
+            "Priority items (marked with ❗ by you or participants) float to the top of the list so you can vote on what matters most first.",
+            "Left panel"),
+        new("🗳️", "Your Vote",
+            "As host you can vote too. Use the voting deck or press keys 1–7. Switch to Observer mode via the Role toggle to watch without voting.",
+            "Center"),
+        new("🎉", "Reveal Votes",
+            "Once at least one vote is cast, click Reveal Votes to show everyone's choices simultaneously. The vote count shows progress.",
+            "Center"),
+        new("🔄", "Re-vote & Next Item",
+            "After revealing, use Re-vote to run another round on the same item, or Next Item → to advance to the following one.",
+            "Center"),
+        new("✂️", "Split Suggestion",
+            "If the average vote is above 5 points, a suggestion banner appears recommending the ticket be broken into smaller stories.",
+            "Center"),
+        new("👋", "Nudge Participants",
+            "Click 👋 next to any participant who hasn't voted to send them a nudge — they'll hear a sound and see a banner.",
+            "Right panel"),
+        new("✋", "Raise Hand Alerts",
+            "When a participant raises their hand you'll hear a chime. Their name appears at the top of the panel — click ✓ Answered to dismiss.",
+            "Right panel"),
+        new("🔗", "Share Session Link",
+            "Use the Copy Session Link button in the header to share the participant URL with your team.",
+            "Header"),
+        new("🏁", "End Session",
+            "Click End Session to close the session. If any items were pointed you'll see a summary screen with totals and averages.",
+            "Header"),
+    ];
+
+    private void StartHostTour() { _hostTourStep = 0; _hostTourActive = true; }
+    private void CloseHostTour() => _hostTourActive = false;
+    private void NextHostStep() { if (_hostTourStep < HostTourSteps.Length - 1) _hostTourStep++; }
+    private void PrevHostStep() { if (_hostTourStep > 0) _hostTourStep--; }
+
+    private void ChooseRole(bool isObserver)
+    {
+        _hostIsObserver = isObserver;
+        _roleChosen = true;
+
+        if (!UserPrefs.HasSeenHostGuide(UserId))
+        {
+            _hostTourStep = 0;
+            _hostTourActive = true;
+            UserPrefs.MarkHostGuideSeen(UserId);
+        }
+    }
+
+    private void SelectItem(JiraItem item)
+    {
+        HostVote = null;
+        _jiraStatus = null;
+        Sessions.SetCurrentItem(SessionId, UserId, item);
+    }
+
+    private void CastVote(string value)
+    {
+        HostVote = value;
+        Sessions.Vote(SessionId, UserId, value);
+    }
+
+    private void PickEmoji(string? emoji)
+    {
+        _hostEmoji = emoji;
+        Sessions.SetEmoji(SessionId, UserId, emoji);
+    }
+
+    private void RevealVotes() => Sessions.RevealVotes(SessionId, UserId);
+
+    private void ResetVoting()
+    {
+        HostVote = null;
+        Sessions.ResetVoting(SessionId, UserId);
+    }
+
+    private void NextItem()
+    {
+        if (NextJiraItem != null)
+        {
+            HostVote = null;
+            Sessions.SetCurrentItem(SessionId, UserId, NextJiraItem);
+        }
+    }
+
+    private async Task SetAgreedPoints(string points)
+    {
+        Sessions.SetAgreedPoints(SessionId, UserId, points);
+
+        if (Session?.CurrentItem == null) return;
+
+        string raw = points == "½" ? "0.5" : points;
+        if (!decimal.TryParse(raw, out decimal pts)) return;
+
+        _jiraStatus = null;
+        try
+        {
+            await JiraService.UpdateStoryPointsAsync(Session.CurrentItem.Key, pts);
+            _jiraStatus = $"✓ Saved {points} pts to JIRA ({Session.CurrentItem.Key})";
+            _jiraSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            _jiraStatus = $"✗ {ex.Message}";
+            _jiraSuccess = false;
+        }
+        StateHasChanged();
+    }
+
+    private void DismissHand(string participantId) =>
+        Sessions.SetHandRaised(SessionId, participantId, false);
+
+    private void NudgeParticipant(string participantId) =>
+        Sessions.NudgeParticipant(SessionId, UserId, participantId);
+
+    private void EndSession()
+    {
+        Sessions.SessionChanged -= OnSessionChanged;
+
+        List<JiraItem> pointed = Session?.Items
+            .Where(i => !string.IsNullOrEmpty(i.CurrentPoints))
+            .ToList() ?? [];
+
+        if (pointed.Count > 0)
+        {
+            Sessions.StoreSummary(SessionId, pointed);
+            Sessions.Remove(SessionId);
+            Navigation.NavigateTo($"/summary/{SessionId}");
+        }
+        else
+        {
+            Sessions.Remove(SessionId);
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private async Task CopyJql()
+    {
+        string jql = JiraService.GetEffectiveJql();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", jql);
+        _jqlCopied = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _jqlCopied = false;
+        StateHasChanged();
+    }
+
+    private async Task CopyLink()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", ParticipantUrl);
+        Copied = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        Copied = false;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Sessions.SessionChanged -= OnSessionChanged;
+        try
+        {
+            await JS.InvokeVoidAsync("keyboardVoting.dispose");
+            await JS.InvokeVoidAsync("columnResizer.dispose");
+        }
+        catch (JSDisconnectedException) { }
+        _dotNetRef?.Dispose();
+    }
+}

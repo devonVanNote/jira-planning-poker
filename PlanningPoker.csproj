@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>PlanningPoker-$(MSBuildProjectName)</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="PlanningPoker.UnitTests/**;Client/**;Shared/**" />
+    <Content Remove="PlanningPoker.UnitTests/**;Client/**;Shared/**" />
+    <EmbeddedResource Remove="PlanningPoker.UnitTests/**;Client/**;Shared/**" />
+    <None Remove="PlanningPoker.UnitTests/**;Client/**;Shared/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Identity.Web" Version="4.9.0" />
+    <PackageReference Include="Microsoft.Identity.Web.UI" Version="4.9.0" />
+  </ItemGroup>
+
+</Project>

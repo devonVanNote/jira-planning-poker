@@ -1,0 +1,26 @@
+<div class="voting-keys">
+    @for (int i = 0; i < StoryPoints.Values.Length; i++)
+    {
+        <span class="voting-key">@(i + 1)</span>
+    }
+</div>
+<div class="voting-deck">
+    @for (int i = 0; i < StoryPoints.Values.Length; i++)
+    {
+        string value = StoryPoints.Values[i];
+        string keyLabel = (i + 1).ToString();
+        <VotingCard Value="@value"
+                    KeyLabel="@keyLabel"
+                    IsSelected="@(SelectedValue == value)"
+                    Disabled="@Disabled"
+                    OnSelect="HandleSelect" />
+    }
+</div>
+
+@code {
+    [Parameter] public string? SelectedValue { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<string> OnSelect { get; set; }
+
+    private Task HandleSelect(string value) => OnSelect.InvokeAsync(value);
+}

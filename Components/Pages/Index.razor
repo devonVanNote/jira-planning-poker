@@ -1,0 +1,178 @@
+@page "/"
+@implements IAsyncDisposable
+
+<PageTitle>Planning Poker</PageTitle>
+
+<div class="home-page">
+    <div class="hero">
+        <div class="hero__icon">🃏</div>
+        <h1>Planning Poker</h1>
+        <p class="hero__subtitle">Agile story point estimation, together with your team</p>
+    </div>
+
+    <AuthorizeView>
+        <Authorized>
+            <div class="home-actions">
+                <a href="create" class="home-card home-card--primary">
+                    <div class="home-card__icon">➕</div>
+                    <div class="home-card__title">Create Session</div>
+                    <div class="home-card__desc">Start a new voting session from your JIRA backlog</div>
+                </a>
+
+                <div class="home-card">
+                    <div class="home-card__icon">🔗</div>
+                    <div class="home-card__title">Join Session</div>
+                    <div class="home-card__desc">Enter a session ID shared by your host</div>
+                    <div class="join-form mt-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control form-control-lg text-uppercase"
+                                   placeholder="Session ID (e.g. A1B2C3D4)"
+                                   maxlength="8"
+                                   @bind="SessionId"
+                                   @onkeyup="HandleEnter" />
+                            <button class="btn btn-primary" @onclick="JoinSession">Join →</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @if (_activeSessions.Count > 0)
+            {
+                <div class="active-sessions">
+                    <div class="active-sessions__header">
+                        <h3 class="active-sessions__title">Active Sessions</h3>
+                        <span class="badge bg-secondary">@_activeSessions.Count</span>
+                    </div>
+                    <div class="active-sessions__list">
+                        @foreach (PokerSession session in _activeSessions)
+                        {
+                            bool isHost = session.HostId == _userId;
+                            int completedCount = session.Items.Count(i => !string.IsNullOrEmpty(i.CurrentPoints));
+                            <div class="session-card @(isHost ? "session-card--host" : "")">
+                                <div class="session-card__top">
+                                    <div class="session-card__identity">
+                                        <code class="session-card__id">@session.Id</code>
+                                        @if (!string.IsNullOrEmpty(session.Name))
+                                        {
+                                            <span class="session-card__name">@session.Name</span>
+                                        }
+                                        @if (isHost)
+                                        {
+                                            <span class="badge bg-warning text-dark">Host</span>
+                                        }
+                                    </div>
+                                    <div class="session-card__actions">
+                                        @if (isHost)
+                                        {
+                                            <a href="host/@session.Id" class="btn btn-sm btn-primary">Rejoin</a>
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    @onclick="() => CancelSession(session.Id)">
+                                                Cancel
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <a href="session/@session.Id" class="btn btn-sm btn-outline-primary">Join</a>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="session-card__meta">
+                                    <span>Host: <strong>@session.HostName</strong></span>
+                                    <span>@(session.Participants.Count) participant@(session.Participants.Count == 1 ? "" : "s")</span>
+                                    <span>@completedCount / @session.Items.Count items estimated</span>
+                                    <span class="session-card__age">@FormatAge(session.CreatedAt)</span>
+                                </div>
+                                @if (session.CurrentItem != null)
+                                {
+                                    <div class="session-card__current">
+                                        Voting on:
+                                        <code class="session-card__current-key">@session.CurrentItem.Key</code>
+                                        <span class="session-card__current-summary">@session.CurrentItem.Summary</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="login-prompt">
+                <div class="login-prompt__icon">🔐</div>
+                <h3>Sign in to get started</h3>
+                <p>Use your Microsoft account to create or join planning sessions.</p>
+                <a href="MicrosoftIdentity/Account/SignIn" class="btn btn-primary btn-lg">
+                    Sign in with Microsoft
+                </a>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    [Inject] private ISessionService Sessions { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string SessionId { get; set; } = "";
+    private string _userId = "";
+    private List<PokerSession> _activeSessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState auth = await AuthState;
+        if (auth.User.Identity?.IsAuthenticated == true)
+        {
+            _userId =
+                auth.User.FindFirst("oid")?.Value ??
+                auth.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value ??
+                auth.User.FindFirst("sub")?.Value ?? "";
+        }
+
+        RefreshSessions();
+        Sessions.SessionChanged += OnSessionChanged;
+    }
+
+    private void OnSessionChanged(string _)
+    {
+        RefreshSessions();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void RefreshSessions() =>
+        _activeSessions = [.. Sessions.GetAll().OrderByDescending(s => s.CreatedAt)];
+
+    private void CancelSession(string sessionId)
+    {
+        Sessions.Remove(sessionId);
+    }
+
+    private void JoinSession()
+    {
+        string id = SessionId.Trim().ToUpperInvariant();
+        if (!string.IsNullOrEmpty(id))
+        {
+            Navigation.NavigateTo($"session/{id}");
+        }
+    }
+
+    private void HandleEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") JoinSession();
+    }
+
+    private static string FormatAge(DateTime createdAt)
+    {
+        TimeSpan elapsed = DateTime.UtcNow - createdAt;
+        if (elapsed.TotalMinutes < 1) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Sessions.SessionChanged -= OnSessionChanged;
+        return ValueTask.CompletedTask;
+    }
+}

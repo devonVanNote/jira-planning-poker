@@ -1,0 +1,47 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+
+<div class="app-layout">
+    <nav class="app-nav navbar navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">🃏 Planning Poker</a>
+            <div class="d-flex align-items-center gap-3">
+                <AuthorizeView>
+                    <Authorized>
+                        <a href="create" class="btn btn-sm btn-outline-light">+ New Session</a>
+                    </Authorized>
+                </AuthorizeView>
+                <button class="btn btn-sm btn-outline-light theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
+                    @(_isDark ? "☀️" : "🌙")
+                </button>
+                <LoginDisplay />
+            </div>
+        </div>
+    </nav>
+
+    <main class="app-main container-fluid">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool _isDark = true;
+    private bool _initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            string theme = await JS.InvokeAsync<string>("themeManager.init");
+            _isDark = theme != "light";
+            _initialized = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        string theme = await JS.InvokeAsync<string>("themeManager.toggle");
+        _isDark = theme != "light";
+    }
+}

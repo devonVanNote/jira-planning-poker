@@ -1,0 +1,438 @@
+@page "/create"
+@attribute [Authorize]
+
+<PageTitle>Create Session — Planning Poker</PageTitle>
+
+<div class="create-wizard">
+
+    <div class="wizard-header">
+        <a href="/" class="btn btn-link btn-sm ps-0">← Back</a>
+        <div class="wizard-steps-indicator">
+            <div class="wizard-step-dot @StepClass(1)">@(StepDotLabel(1))</div>
+            <div class="wizard-connector @(_step > 1 ? "wizard-connector--done" : "")"></div>
+            <div class="wizard-step-dot @StepClass(2)">@(StepDotLabel(2))</div>
+            <div class="wizard-connector @(_step > 2 ? "wizard-connector--done" : "")"></div>
+            <div class="wizard-step-dot @StepClass(3)">@(StepDotLabel(3))</div>
+        </div>
+    </div>
+
+    @* ── Step 1: Session name + board ── *@
+    @if (_step == 1)
+    {
+        <div class="wizard-card wizard-card--wide">
+            <h4 class="wizard-card__title">Name your session</h4>
+            <div class="mb-3">
+                <label class="form-label">Session Name <span class="text-muted small">(optional)</span></label>
+                <input type="text" class="form-control" placeholder="e.g. Sprint 42 Planning"
+                       @bind="_sessionName" maxlength="80" />
+            </div>
+            <div class="mb-4">
+                <label class="form-label">Team / Board</label>
+                <select class="form-select" @bind="_selectedTeam">
+                    <option value="">All Boards</option>
+                    @foreach (string t in _teams)
+                    {
+                        <option value="@t">@t</option>
+                    }
+                </select>
+            </div>
+            <div class="wizard-card__footer">
+                <button class="btn btn-primary" @onclick="GoToStep2">
+                    Next: Configure Filters →
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="wizard-summary" @onclick="() => _step = 1">
+            <span class="wizard-summary__check">✓</span>
+            <span>
+                <strong>@(string.IsNullOrWhiteSpace(_sessionName) ? "Untitled Session" : _sessionName)</strong>
+                <span class="text-muted"> · @(string.IsNullOrEmpty(_selectedTeam) ? "All Boards" : _selectedTeam)</span>
+            </span>
+            <span class="wizard-summary__edit ms-auto">Edit</span>
+        </div>
+    }
+
+    @* ── Step 2: Filters ── *@
+    @if (_step >= 2)
+    {
+        @if (_step == 2)
+        {
+            <div class="wizard-card">
+                <h4 class="wizard-card__title">Configure filters</h4>
+                @if (_isLoading)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Loading items…</p>
+                    </div>
+                }
+                else if (_loadError != null)
+                {
+                    <div class="alert alert-warning">
+                        <strong>Could not load JIRA items:</strong> @_loadError
+                    </div>
+                }
+                else
+                {
+                    @if (AllStatuses.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <div class="form-label fw-semibold">Status</div>
+                            <div class="status-filter">
+                                @foreach (string status in AllStatuses)
+                                {
+                                    bool isChecked = _selectedStatuses.Contains(status);
+                                    <label class="status-filter__option">
+                                        <input type="checkbox" checked="@isChecked"
+                                               @onchange="() => ToggleStatus(status)" />
+                                        @status
+                                    </label>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (AllIssueTypes.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <div class="form-label fw-semibold">Issue Type</div>
+                            <div class="status-filter">
+                                @foreach (string issueType in AllIssueTypes)
+                                {
+                                    bool isChecked = _selectedIssueTypes.Contains(issueType);
+                                    <label class="status-filter__option">
+                                        <input type="checkbox" checked="@isChecked"
+                                               @onchange="() => ToggleIssueType(issueType)" />
+                                        <span class="badge @IssueTypeBadgeClass(issueType)">@IssueTypeEmoji(issueType) @issueType</span>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+                <div class="wizard-card__footer">
+                    <button class="btn btn-outline-secondary" @onclick="() => _step = 1">← Back</button>
+                    <button class="btn btn-sm btn-outline-secondary ms-auto me-2" @onclick="CopyJql" title="Copy the JIRA query to clipboard">
+                        @(_jqlCopied ? "Copied ✓" : "Copy JQL")
+                    </button>
+                    <button class="btn btn-primary" @onclick="() => _step = 3" disabled="@_isLoading">
+                        Next: Select Items →
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="wizard-summary" @onclick="() => _step = 2">
+                <span class="wizard-summary__check">✓</span>
+                <span class="text-muted">
+                    @_selectedStatuses.Count status@(_selectedStatuses.Count == 1 ? "" : "es") ·
+                    @_selectedIssueTypes.Count type@(_selectedIssueTypes.Count == 1 ? "" : "s") ·
+                    @FilteredItems.Count item@(FilteredItems.Count == 1 ? "" : "s") available
+                </span>
+                <span class="wizard-summary__edit ms-auto">Edit</span>
+            </div>
+        }
+    }
+
+    @* ── Step 3: Item selection ── *@
+    @if (_step == 3)
+    {
+        <div class="wizard-card">
+            <h4 class="wizard-card__title">Select items to vote on</h4>
+
+            <div class="mb-2">
+                <input type="text" class="form-control form-control-sm" placeholder="Search by key or summary…"
+                       @bind="_searchText" @bind:event="oninput" maxlength="100" />
+            </div>
+
+            <div class="add-item-row mb-2">
+                <input type="text" class="form-control form-control-sm add-item-row__input"
+                       placeholder="Add by JIRA link or key…"
+                       @bind="_addInput" @bind:event="oninput"
+                       @onkeydown="OnAddKeyDown"
+                       disabled="@_addLoading"
+                       maxlength="300" />
+                <button class="btn btn-sm btn-outline-primary add-item-row__btn"
+                        @onclick="AddByLink"
+                        disabled="@(string.IsNullOrWhiteSpace(_addInput) || _addLoading)">
+                    @if (_addLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                    else { <span>+</span> }
+                </button>
+            </div>
+            @if (_addError != null)
+            {
+                <div class="alert alert-danger py-1 px-2 small mb-2">@_addError</div>
+            }
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <small class="text-muted">@FilteredItems.Count item(s)</small>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleAll">
+                    @(AreAllFilteredSelected ? "Deselect All" : "Select All")
+                </button>
+            </div>
+
+            <div class="jira-item-picker__list mb-3">
+                @foreach (JiraItem item in FilteredItems)
+                {
+                    bool isSelected = _selectedItems.Any(s => s.Key == item.Key);
+                    <div class="jira-item @(isSelected ? "jira-item--selected" : "")"
+                         @onclick="() => ToggleItem(item)">
+                        <input type="checkbox" class="form-check-input me-2 flex-shrink-0"
+                               checked="@isSelected"
+                               @onclick:stopPropagation="true"
+                               @onchange="() => ToggleItem(item)" />
+                        <span class="jira-item__key">@item.Key</span>
+                        <span class="jira-item__summary">@item.Summary</span>
+                        <div class="jira-item__badges ms-auto">
+                            @if (!string.IsNullOrEmpty(item.CurrentPoints))
+                            {
+                                <span class="badge bg-light text-dark me-1">@item.CurrentPoints pts</span>
+                            }
+                            @if (!string.IsNullOrEmpty(item.IssueType))
+                            {
+                                <span class="badge @IssueTypeBadgeClass(item.IssueType) me-1">@IssueTypeEmoji(item.IssueType) @item.IssueType</span>
+                            }
+                            <span class="badge status-badge">@item.Status</span>
+                        </div>
+                    </div>
+                }
+                @if (!FilteredItems.Any())
+                {
+                    <div class="text-center py-4 text-muted">No items match your filters.</div>
+                }
+            </div>
+
+            <div class="wizard-card__footer">
+                <button class="btn btn-outline-secondary" @onclick="() => _step = 2">← Back</button>
+                @if (_selectedItems.Count > 0)
+                {
+                    <span class="text-muted me-3"><strong>@_selectedItems.Count</strong> selected</span>
+                    <button class="btn btn-primary btn-lg" @onclick="StartSession" disabled="@_isCreating">
+                        @if (_isCreating) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Start Session →
+                    </button>
+                }
+                else
+                {
+                    <span class="text-muted">Select at least one item to continue</span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_createError))
+    {
+        <div class="alert alert-danger mt-3">@_createError</div>
+    }
+</div>
+
+@code {
+    [Inject] private ISessionService Sessions { get; set; } = default!;
+    [Inject] private IJiraService JiraService { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private int _step = 1;
+    private string _sessionName = "";
+    private string _selectedTeam = "";
+    private string _searchText = "";
+    private List<string> _teams = [];
+    private List<JiraItem> _allItems = [];
+    private List<JiraItem> _selectedItems = [];
+    private HashSet<string> _selectedStatuses = [];
+    private HashSet<string> _selectedIssueTypes = [];
+    private bool _isLoading;
+    private bool _isCreating;
+    private bool _jqlCopied;
+    private string? _loadError;
+    private string? _createError;
+    private string _addInput = "";
+    private bool _addLoading;
+    private string? _addError;
+
+    private static readonly List<string> DefaultCheckedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
+    private static readonly List<string> PinnedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
+    private static readonly List<string> PinnedIssueTypes = ["Bug", "Story", "Task"];
+
+    private List<string> AllStatuses => _allItems
+        .Select(i => i.Status).Where(s => !string.IsNullOrEmpty(s))
+        .Concat(PinnedStatuses).Distinct().OrderBy(s => s).ToList();
+
+    private List<string> AllIssueTypes => _allItems
+        .Select(i => i.IssueType ?? "").Where(t => !string.IsNullOrEmpty(t))
+        .Concat(PinnedIssueTypes).Distinct().OrderBy(t => t).ToList();
+
+    private List<JiraItem> FilteredItems => _allItems
+        .Where(i => (string.IsNullOrEmpty(_searchText) ||
+                     i.Key.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+                     i.Summary.Contains(_searchText, StringComparison.OrdinalIgnoreCase)) &&
+                    (_selectedStatuses.Count == 0 || _selectedStatuses.Contains(i.Status)) &&
+                    (_selectedIssueTypes.Count == 0 || _selectedIssueTypes.Contains(i.IssueType ?? "")))
+        .ToList();
+
+    private bool AreAllFilteredSelected =>
+        FilteredItems.Count > 0 && FilteredItems.All(i => _selectedItems.Any(s => s.Key == i.Key));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _teams = await JiraService.GetTeamsAsync(); }
+        catch { _teams = []; }
+    }
+
+    private async Task GoToStep2()
+    {
+        _step = 2;
+        await LoadItems();
+    }
+
+    private async Task LoadItems()
+    {
+        _isLoading = true;
+        _loadError = null;
+        try
+        {
+            _allItems = await JiraService.GetItemsAsync(
+                team: string.IsNullOrEmpty(_selectedTeam) ? null : _selectedTeam);
+            _selectedStatuses = [.. DefaultCheckedStatuses];
+            _selectedIssueTypes = [.. AllIssueTypes];
+            _selectedItems = _selectedItems.Where(s => _allItems.Any(a => a.Key == s.Key)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            _allItems = [];
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ToggleStatus(string status)
+    {
+        if (!_selectedStatuses.Remove(status)) _selectedStatuses.Add(status);
+    }
+
+    private void ToggleIssueType(string issueType)
+    {
+        if (!_selectedIssueTypes.Remove(issueType)) _selectedIssueTypes.Add(issueType);
+    }
+
+    private void ToggleItem(JiraItem item)
+    {
+        if (_selectedItems.Any(s => s.Key == item.Key))
+            _selectedItems.RemoveAll(s => s.Key == item.Key);
+        else
+            _selectedItems.Add(item);
+    }
+
+    private void ToggleAll()
+    {
+        if (AreAllFilteredSelected)
+            _selectedItems.RemoveAll(s => FilteredItems.Any(f => f.Key == s.Key));
+        else
+            foreach (JiraItem item in FilteredItems.Where(i => !_selectedItems.Any(s => s.Key == i.Key)))
+                _selectedItems.Add(item);
+    }
+
+    private static string? ParseJiraKey(string input)
+    {
+        System.Text.RegularExpressions.Match m =
+            System.Text.RegularExpressions.Regex.Match(input.Trim(), @"[A-Z]+-\d+");
+        return m.Success ? m.Value : null;
+    }
+
+    private async Task OnAddKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddByLink();
+    }
+
+    private async Task AddByLink()
+    {
+        string? key = ParseJiraKey(_addInput);
+        if (key == null) { _addError = "Could not find a JIRA key (e.g. PROJ-123) in the input."; return; }
+        if (_allItems.Any(i => i.Key == key)) { _addError = $"{key} is already in the list."; return; }
+
+        _addLoading = true;
+        _addError = null;
+        try
+        {
+            JiraItem? item = await JiraService.GetItemByKeyAsync(key);
+            if (item == null) { _addError = $"Could not load {key} from JIRA."; return; }
+            _allItems.Add(item);
+            _selectedItems.Add(item);
+            _addInput = "";
+        }
+        catch (Exception ex) { _addError = ex.Message; }
+        finally { _addLoading = false; }
+    }
+
+    private static string IssueTypeEmoji(string issueType) => issueType switch
+    {
+        "Bug"   => "🐛",
+        "Story" => "📖",
+        "Task"  => "✅",
+        _       => ""
+    };
+
+    private static string IssueTypeBadgeClass(string issueType) => issueType switch
+    {
+        "Bug"   => "issue-type-badge--bug",
+        "Story" => "issue-type-badge--story",
+        "Task"  => "issue-type-badge--task",
+        _       => "issue-type-badge"
+    };
+
+    private async Task CopyJql()
+    {
+        string jql = JiraService.GetEffectiveJql(string.IsNullOrEmpty(_selectedTeam) ? null : _selectedTeam);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", jql);
+        _jqlCopied = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _jqlCopied = false;
+        StateHasChanged();
+    }
+
+    private string StepClass(int step) => _step == step ? "wizard-step-dot--active" :
+                                          _step > step  ? "wizard-step-dot--done"   : "";
+
+    private string StepDotLabel(int step) => _step > step ? "✓" : step.ToString();
+
+    private async Task StartSession()
+    {
+        if (_selectedItems.Count == 0) return;
+        _isCreating = true;
+        _createError = null;
+        try
+        {
+            AuthenticationState auth = await AuthState;
+            string userId =
+                auth.User.FindFirst("oid")?.Value ??
+                auth.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value ??
+                auth.User.FindFirst("sub")?.Value ?? "";
+            string rawName =
+                auth.User.FindFirst("name")?.Value ??
+                auth.User.FindFirst("preferred_username")?.Value ?? "Unknown";
+            string displayName = FormatDisplayName(rawName);
+            PokerSession session = Sessions.CreateSession(userId, displayName, _selectedItems, _sessionName.Trim());
+            Navigation.NavigateTo($"host/{session.Id}");
+        }
+        catch (Exception ex)
+        {
+            _createError = ex.Message;
+            _isCreating = false;
+        }
+    }
+
+    private static string FormatDisplayName(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return "Unknown";
+        string[] parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1 ? parts[0] : $"{parts[0]} {parts[^1][0]}.";
+    }
+}

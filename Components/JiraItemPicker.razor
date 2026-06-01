@@ -1,0 +1,308 @@
+<div class="jira-item-picker">
+    <div class="row g-2 mb-3">
+        <div class="col-md-4">
+            <label class="form-label">Team / Board</label>
+            <select class="form-select" @bind="SelectedTeam" @bind:after="LoadItems">
+                <option value="">All Boards</option>
+                @foreach (string t in Teams)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-8">
+            <label class="form-label">Search</label>
+            <input type="text" class="form-control" placeholder="Filter by key or summary..."
+                   @bind="SearchText" @bind:event="oninput" maxlength="100" />
+        </div>
+    </div>
+
+    @if (IsLoading)
+    {
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading JIRA items...</p>
+        </div>
+    }
+    else if (ErrorMessage != null)
+    {
+        <div class="alert alert-warning">
+            <strong>Could not load JIRA items:</strong> @ErrorMessage
+            <br /><small>Check your JIRA configuration in appsettings.json.</small>
+        </div>
+    }
+    else
+    {
+        @if (AllStatuses.Count > 0)
+        {
+            <div class="status-filter mb-1">
+                <span class="status-filter__label">Status:</span>
+                @foreach (string status in AllStatuses)
+                {
+                    bool isChecked = _selectedStatuses.Contains(status);
+                    <label class="status-filter__option">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange="() => ToggleStatus(status)" />
+                        @status
+                    </label>
+                }
+            </div>
+        }
+        @if (AllIssueTypes.Count > 0)
+        {
+            <div class="status-filter mb-2">
+                <span class="status-filter__label">Type:</span>
+                @foreach (string issueType in AllIssueTypes)
+                {
+                    bool isChecked = _selectedIssueTypes.Contains(issueType);
+                    <label class="status-filter__option">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange="() => ToggleIssueType(issueType)" />
+                        <span class="badge @IssueTypeBadgeClass(issueType)">@IssueTypeEmoji(issueType) @issueType</span>
+                    </label>
+                }
+            </div>
+        }
+
+        <div class="add-item-row mb-2">
+            <input type="text" class="form-control form-control-sm add-item-row__input"
+                   placeholder="Add by JIRA link or key…"
+                   @bind="_addInput" @bind:event="oninput"
+                   @onkeydown="OnAddKeyDown"
+                   disabled="@_addLoading"
+                   maxlength="300" />
+            <button class="btn btn-sm btn-outline-primary add-item-row__btn"
+                    @onclick="AddByLink"
+                    disabled="@(string.IsNullOrWhiteSpace(_addInput) || _addLoading)">
+                @if (_addLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                else { <span>+</span> }
+            </button>
+        </div>
+        @if (_addError != null)
+        {
+            <div class="alert alert-danger py-1 px-2 small mb-2">@_addError</div>
+        }
+
+        <div class="jira-item-picker__header d-flex justify-content-between align-items-center mb-2">
+            <small class="text-muted">@FilteredItems.Count item(s)</small>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleAll">
+                @(SelectedItems.Count == FilteredItems.Count && FilteredItems.Count > 0 ? "Deselect All" : "Select All")
+            </button>
+        </div>
+
+        <div class="jira-item-picker__list">
+            @foreach (JiraItem item in FilteredItems)
+            {
+                bool isSelected = SelectedItems.Any(s => s.Key == item.Key);
+                <div class="jira-item @(isSelected ? "jira-item--selected" : "")"
+                     @onclick="() => ToggleItem(item)">
+                    <input type="checkbox" class="form-check-input me-2 flex-shrink-0"
+                           checked="@isSelected"
+                           @onclick:stopPropagation="true"
+                           @onchange="() => ToggleItem(item)" />
+                    <span class="jira-item__key">@item.Key</span>
+                    <span class="jira-item__summary">@item.Summary</span>
+                    <div class="jira-item__badges ms-auto">
+                        @if (!string.IsNullOrEmpty(item.CurrentPoints))
+                        {
+                            <span class="badge bg-light text-dark me-1">@item.CurrentPoints pts</span>
+                        }
+                        @if (!string.IsNullOrEmpty(item.IssueType))
+                        {
+                            <span class="badge @IssueTypeBadgeClass(item.IssueType) me-1">@IssueTypeEmoji(item.IssueType) @item.IssueType</span>
+                        }
+                        <span class="badge status-badge">@item.Status</span>
+                    </div>
+                </div>
+            }
+            @if (!FilteredItems.Any())
+            {
+                <div class="text-center py-4 text-muted">No items found.</div>
+            }
+        </div>
+
+        <div class="jira-item-picker__footer">
+            <strong>@SelectedItems.Count</strong> item(s) selected
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter] public EventCallback<List<JiraItem>> OnSelectionChanged { get; set; }
+    [Inject] private IJiraService JiraService { get; set; } = default!;
+
+    private List<string> Teams { get; set; } = [];
+    private List<JiraItem> AllItems { get; set; } = [];
+    private List<JiraItem> SelectedItems { get; set; } = [];
+    private string SelectedTeam { get; set; } = "";
+    private string SearchText { get; set; } = "";
+    private bool IsLoading { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string _addInput = "";
+    private bool _addLoading;
+    private string? _addError;
+    private HashSet<string> _selectedStatuses = [];
+    private HashSet<string> _selectedIssueTypes = [];
+
+    private static readonly List<string> DefaultCheckedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
+    private static readonly List<string> PinnedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
+
+    private List<string> AllStatuses => AllItems
+        .Select(i => i.Status)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Concat(PinnedStatuses)
+        .Distinct()
+        .OrderBy(s => s)
+        .ToList();
+
+    private static readonly List<string> DefaultIssueTypes = ["Bug", "Story", "Task"];
+
+    private List<string> AllIssueTypes => AllItems
+        .Select(i => i.IssueType ?? "")
+        .Where(t => !string.IsNullOrEmpty(t))
+        .Concat(DefaultIssueTypes)
+        .Distinct()
+        .OrderBy(t => t)
+        .ToList();
+
+    private List<JiraItem> FilteredItems => AllItems
+        .Where(i => (string.IsNullOrEmpty(SearchText) ||
+                     i.Key.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+                     i.Summary.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) &&
+                    (_selectedStatuses.Count == 0 || _selectedStatuses.Contains(i.Status)) &&
+                    (_selectedIssueTypes.Count == 0 || _selectedIssueTypes.Contains(i.IssueType ?? "")))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTeams();
+        await LoadItems();
+    }
+
+    private async Task LoadTeams()
+    {
+        try { Teams = await JiraService.GetTeamsAsync(); }
+        catch { Teams = []; }
+    }
+
+    private async Task LoadItems()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        try
+        {
+            AllItems = await JiraService.GetItemsAsync(
+                team: string.IsNullOrEmpty(SelectedTeam) ? null : SelectedTeam);
+            SelectedItems = SelectedItems.Where(s => AllItems.Any(a => a.Key == s.Key)).ToList();
+            _selectedStatuses = [.. DefaultCheckedStatuses];
+            _selectedIssueTypes = [.. AllIssueTypes];
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            AllItems = [];
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task ToggleItem(JiraItem item)
+    {
+        if (SelectedItems.Any(s => s.Key == item.Key))
+            SelectedItems.RemoveAll(s => s.Key == item.Key);
+        else
+            SelectedItems.Add(item);
+        await OnSelectionChanged.InvokeAsync([.. SelectedItems]);
+    }
+
+    private async Task ToggleAll()
+    {
+        SelectedItems = SelectedItems.Count == FilteredItems.Count
+            ? []
+            : [.. FilteredItems];
+        await OnSelectionChanged.InvokeAsync([.. SelectedItems]);
+    }
+
+    private void ToggleStatus(string status)
+    {
+        if (!_selectedStatuses.Remove(status))
+            _selectedStatuses.Add(status);
+    }
+
+    private static string IssueTypeEmoji(string issueType) => issueType switch
+    {
+        "Bug"   => "🐛",
+        "Story" => "📖",
+        "Task"  => "✅",
+        _ => ""
+    };
+
+    private static string IssueTypeBadgeClass(string issueType) => issueType switch
+    {
+        "Bug"   => "issue-type-badge--bug",
+        "Story" => "issue-type-badge--story",
+        "Task"  => "issue-type-badge--task",
+        _ => "issue-type-badge"
+    };
+
+    private void ToggleIssueType(string issueType)
+    {
+        if (!_selectedIssueTypes.Remove(issueType))
+            _selectedIssueTypes.Add(issueType);
+    }
+
+    private static string? ParseJiraKey(string input)
+    {
+        System.Text.RegularExpressions.Match m =
+            System.Text.RegularExpressions.Regex.Match(input.Trim(), @"[A-Z]+-\d+");
+        return m.Success ? m.Value : null;
+    }
+
+    private async Task OnAddKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddByLink();
+    }
+
+    private async Task AddByLink()
+    {
+        string? key = ParseJiraKey(_addInput);
+        if (key == null)
+        {
+            _addError = "Could not find a JIRA key (e.g. PROJ-123) in the input.";
+            return;
+        }
+        if (AllItems.Any(i => i.Key == key))
+        {
+            _addError = $"{key} is already in the list.";
+            return;
+        }
+
+        _addLoading = true;
+        _addError = null;
+
+        try
+        {
+            JiraItem? item = await JiraService.GetItemByKeyAsync(key);
+            if (item == null)
+            {
+                _addError = $"Could not load {key} from JIRA. Check the key and your connection.";
+                return;
+            }
+            AllItems.Add(item);
+            SelectedItems.Add(item);
+            await OnSelectionChanged.InvokeAsync([.. SelectedItems]);
+            _addInput = "";
+        }
+        catch (Exception ex)
+        {
+            _addError = ex.Message;
+        }
+        finally
+        {
+            _addLoading = false;
+        }
+    }
+}

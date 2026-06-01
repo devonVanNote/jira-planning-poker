@@ -1,0 +1,138 @@
+@page "/summary/{SessionId}"
+@attribute [Authorize]
+
+<PageTitle>Session Summary | Planning Poker</PageTitle>
+
+@if (_items == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status"></div>
+    </div>
+}
+else
+{
+    <div class="summary-page">
+        <div class="summary-header">
+            <div>
+                <h2 class="summary-header__title">Session Complete</h2>
+                @if (!string.IsNullOrEmpty(_sessionName))
+                {
+                    <p class="summary-header__name text-muted">@_sessionName</p>
+                }
+            </div>
+            <a href="/" class="btn btn-primary">Done →</a>
+        </div>
+
+        <div class="summary-stat-row">
+            <div class="summary-stat">
+                <span class="summary-stat__value">@_items.Count</span>
+                <span class="summary-stat__label">Items Estimated</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat__value">@TotalPoints</span>
+                <span class="summary-stat__label">Total Points</span>
+            </div>
+            @if (AveragePoints.HasValue)
+            {
+                <div class="summary-stat">
+                    <span class="summary-stat__value">@AveragePoints.Value.ToString("F1")</span>
+                    <span class="summary-stat__label">Avg per Item</span>
+                </div>
+            }
+        </div>
+
+        <div class="summary-table-wrap">
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th>Key</th>
+                        <th>Summary</th>
+                        <th class="summary-table__pts">Points</th>
+                        <th>Status</th>
+                        <th>Assignee</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (JiraItem item in _items)
+                    {
+                        <tr>
+                            <td class="summary-table__key">
+                                <a href="@JiraUrl(item.Key)" target="_blank" rel="noopener noreferrer">
+                                    @item.Key ↗
+                                </a>
+                            </td>
+                            <td>@item.Summary</td>
+                            <td class="summary-table__pts">
+                                <span class="badge summary-pts-badge">@item.CurrentPoints</span>
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(item.Status))
+                                {
+                                    <span class="badge status-badge">@item.Status</span>
+                                }
+                            </td>
+                            <td class="text-muted">@item.AssigneeName</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string SessionId { get; set; } = "";
+    [Inject] private ISessionService Sessions { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private IConfiguration Config { get; set; } = default!;
+
+    private List<JiraItem>? _items;
+    private string? _sessionName;
+
+    private string TotalPoints
+    {
+        get
+        {
+            decimal total = _items?
+                .Select(i => ParsePoints(i.CurrentPoints))
+                .Where(v => v.HasValue)
+                .Sum(v => v!.Value) ?? 0;
+            return total == 0 ? "—" : total.ToString("G29");
+        }
+    }
+
+    private decimal? AveragePoints
+    {
+        get
+        {
+            if (_items == null) return null;
+            List<decimal> values = _items
+                .Select(i => ParsePoints(i.CurrentPoints))
+                .Where(v => v.HasValue)
+                .Select(v => v!.Value)
+                .ToList();
+            return values.Count > 0 ? values.Average() : null;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        List<JiraItem>? items = Sessions.ConsumeSummary(SessionId);
+        if (items == null || items.Count == 0)
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+        _items = items;
+    }
+
+    private string JiraUrl(string key) =>
+        $"{(Config["Jira:BaseUrl"] ?? "").TrimEnd('/')}/browse/{key}";
+
+    private static decimal? ParsePoints(string? v) => v switch
+    {
+        null or "" => null,
+        "½" => 0.5m,
+        _ => decimal.TryParse(v, out decimal n) ? n : null
+    };
+}

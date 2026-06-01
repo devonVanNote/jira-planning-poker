@@ -1,0 +1,655 @@
+@page "/session/{SessionId}"
+@attribute [Authorize]
+@implements IAsyncDisposable
+
+<PageTitle>Session @SessionId | Planning Poker</PageTitle>
+
+@if (NotFound)
+{
+    <div class="alert alert-danger mt-4">
+        <h4>Session not found</h4>
+        <p>Session <strong>@SessionId</strong> does not exist or has ended.</p>
+        <a href="/" class="btn btn-primary">Go Home</a>
+    </div>
+}
+else if (!_roleChosen)
+{
+    <div class="role-picker-overlay">
+        <div class="role-picker">
+            <h4 class="role-picker__title">How would you like to join?</h4>
+            <p class="role-picker__subtitle text-muted">Session <strong>@SessionId</strong></p>
+            <div class="role-picker__options">
+                <button class="role-option" @onclick="() => JoinAs(false)">
+                    <span class="role-option__icon">🗳️</span>
+                    <span class="role-option__label">Voter</span>
+                    <span class="role-option__desc">Participate and cast votes</span>
+                </button>
+                <button class="role-option" @onclick="() => JoinAs(true)">
+                    <span class="role-option__icon">👁️</span>
+                    <span class="role-option__label">Observer</span>
+                    <span class="role-option__desc">Watch without voting</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else if (PokerSessionData == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-3 text-muted">Joining session @SessionId...</p>
+    </div>
+}
+else
+{
+    <div class="participant-session">
+        <div class="session-header">
+            <div>
+                <span class="session-header__label">Session</span>
+                <strong class="session-header__id">@PokerSessionData.Id</strong>
+            </div>
+            <div class="text-white-50 small">Hosted by @PokerSessionData.HostName</div>
+        </div>
+
+        <div class="session-layout">
+            <div class="session-items">
+                <div class="sidebar-section-title mb-2">Sprint Items</div>
+
+                <div class="add-item-row mb-2">
+                    <input type="text" class="form-control form-control-sm add-item-row__input"
+                           placeholder="Add by JIRA link or key…"
+                           @bind="_addItemInput" @bind:event="oninput"
+                           @onkeydown="OnAddItemKeyDown"
+                           disabled="@_addItemLoading"
+                           maxlength="300" />
+                    <button class="btn btn-sm btn-outline-primary add-item-row__btn"
+                            @onclick="AddItemByLink"
+                            disabled="@(string.IsNullOrWhiteSpace(_addItemInput) || _addItemLoading)">
+                        @if (_addItemLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                        else { <span>+</span> }
+                    </button>
+                </div>
+                @if (_addItemError != null)
+                {
+                    <div class="alert alert-danger py-1 px-2 small mb-2">@_addItemError</div>
+                }
+
+                <input type="text" class="form-control form-control-sm mb-1"
+                       placeholder="Search items…"
+                       @bind="_participantSearch" @bind:event="oninput" maxlength="100" />
+
+                @if (_sessionAllStatuses.Count > 0)
+                {
+                    <div class="status-filter mb-1">
+                        <span class="status-filter__label">Status:</span>
+                        @foreach (string status in _sessionAllStatuses)
+                        {
+                            bool chk = _sessionStatusFilter.Contains(status);
+                            <label class="status-filter__option">
+                                <input type="checkbox" checked="@chk" @onchange="() => ToggleSessionStatus(status)" />
+                                @status
+                            </label>
+                        }
+                    </div>
+                }
+                @if (_sessionAllTypes.Count > 0)
+                {
+                    <div class="status-filter mb-1">
+                        <span class="status-filter__label">Type:</span>
+                        @foreach (string t in _sessionAllTypes)
+                        {
+                            bool chk = _sessionTypeFilter.Contains(t);
+                            <label class="status-filter__option">
+                                <input type="checkbox" checked="@chk" @onchange="() => ToggleSessionType(t)" />
+                                <span class="badge @IssueTypeBadgeClass(t)">@IssueTypeEmoji(t) @t</span>
+                            </label>
+                        }
+                    </div>
+                }
+
+                <div class="participant-item-list">
+                    @foreach (JiraItem item in ParticipantOrderedItems)
+                    {
+                        bool isActive = PokerSessionData.CurrentItem?.Key == item.Key;
+                        bool isPriority = PokerSessionData.PriorityItems.Contains(item.Key);
+                        <div class="participant-item @(isActive ? "participant-item--active" : "") @(isPriority ? "participant-item--priority" : "")"
+                             @onclick="() => OpenPreview(item)">
+                            <button class="priority-btn @(isPriority ? "priority-btn--active" : "")"
+                                    title="@(isPriority ? "Remove priority" : "Mark as priority")"
+                                    @onclick="() => TogglePriority(item.Key)"
+                                    @onclick:stopPropagation="true">❗</button>
+                            <div class="participant-item__info">
+                                <span class="item-key">@item.Key</span>
+                                <span class="participant-item__summary">@item.Summary</span>
+                            </div>
+                        </div>
+                    }
+                    @if (!ParticipantOrderedItems.Any())
+                    {
+                        <p class="text-muted small text-center py-3">No items found.</p>
+                    }
+                </div>
+            </div>
+            <div class="resize-handle" data-side="left"></div>
+            <div class="session-main">
+                <div class="mb-3">
+                    <div class="sidebar-section-title mb-2">Voting On</div>
+                    <CurrentItem Item="@PokerSessionData.CurrentItem" />
+                </div>
+
+                @if (PokerSessionData.CurrentItem != null)
+                {
+                    @if (!PokerSessionData.VotesRevealed)
+                    {
+                        @if (_isNudged && !_isObserver && MyVote == null)
+                        {
+                            <div class="nudge-banner">
+                                <span class="nudge-banner__icon">👋</span>
+                                <span>Your team is waiting for your vote!</span>
+                            </div>
+                        }
+                        @if (_isObserver)
+                        {
+                            <div class="observer-waiting">
+                                <span class="observer-waiting__icon">👁️</span>
+                                <p class="observer-waiting__label">Observing — waiting for host to reveal votes</p>
+                                <p class="text-muted small">@VotedCount / @TotalCount voted</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="voting-section">
+                                <div class="sidebar-section-title mb-3">
+                                    @if (MyVote != null)
+                                    {
+                                        <span>Your vote: <span class="vote-badge">@MyVote</span></span>
+                                    }
+                                    else
+                                    {
+                                        <span>Cast Your Vote</span>
+                                    }
+                                </div>
+                                <p class="text-muted small mb-2">⌨️ Press <kbd>1</kbd>–<kbd>7</kbd> to vote by keyboard</p>
+                                <VotingDeck SelectedValue="@MyVote" OnSelect="CastVote" />
+                                <p class="text-muted small mt-2">
+                                    @VotedCount / @TotalCount voted — waiting for host to reveal
+                                </p>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <VoteResults Session="@PokerSessionData" IsHost="false" />
+                    }
+                }
+            </div>
+            <div class="resize-handle" data-side="right"></div>
+            <div class="session-sidebar">
+                <div class="sidebar-section-title mb-2">Your Avatar</div>
+                <EmojiPicker Selected="@_myEmoji" OnSelect="PickEmoji" />
+                <button class="btn btn-secondary w-100 mt-2" @onclick="StartTour">
+                    ❓ Feature Guide
+                </button>
+
+                <div class="role-toggle mt-3">
+                    <div class="sidebar-section-title mb-1">Your Role</div>
+                    <div class="role-toggle__row">
+                        <span class="role-toggle__label">
+                            @if (_isObserver)
+                            {
+                                <span>👁️ Observer</span>
+                            }
+                            else
+                            {
+                                <span>🗳️ Voter</span>
+                            }
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="SwitchRole">
+                            Switch to @(_isObserver ? "Voter" : "Observer")
+                        </button>
+                    </div>
+                </div>
+
+                <div class="raise-hand-section mt-3">
+                    @if (_myHandRaised)
+                    {
+                        <div class="raise-hand-active">
+                            <span class="raise-hand-active__icon">✋</span>
+                            <span class="raise-hand-active__label">Hand raised</span>
+                            <button class="btn btn-sm btn-outline-secondary ms-auto"
+                                    @onclick="LowerHand">
+                                Lower
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="btn btn-raise-hand w-100" @onclick="RaiseHand">
+                            ✋ Raise Hand
+                        </button>
+                    }
+                </div>
+
+                <div class="sidebar-section-title mt-3">
+                    Participants (@(PokerSessionData.Participants.Count + 1))
+                </div>
+
+                <div class="participant host-participant">
+                    <div class="participant__avatar host-avatar">@Initials(PokerSessionData.HostName)</div>
+                    <span class="participant__name">
+                        @if (!string.IsNullOrEmpty(PokerSessionData.HostEmoji))
+                        {
+                            <span class="participant__emoji">@PokerSessionData.HostEmoji</span>
+                        }
+                        @PokerSessionData.HostName <em class="text-muted">(host)</em>
+                    </span>
+                    @if (PokerSessionData.VotesRevealed && PokerSessionData.HostHasVoted)
+                    {
+                        <span class="badge participant__vote">@PokerSessionData.HostVote</span>
+                    }
+                    else if (PokerSessionData.HostHasVoted)
+                    {
+                        <span class="badge bg-success participant__vote">✓</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary participant__vote">...</span>
+                    }
+                </div>
+
+                <ParticipantList Participants="@PokerSessionData.Participants"
+                                 VotesRevealed="@PokerSessionData.VotesRevealed" />
+            </div>
+        </div>
+    </div>
+
+    @if (_previewItem != null)
+    {
+        <div class="item-preview-backdrop" @onclick="ClosePreview">
+            <div class="item-preview-modal" @onclick:stopPropagation="true">
+                <div class="item-preview-modal__header">
+                    <span class="sidebar-section-title">Item Preview</span>
+                    <button class="item-preview-modal__close" @onclick="ClosePreview" aria-label="Close">✕</button>
+                </div>
+                <div class="item-preview-modal__body">
+                    <CurrentItem Item="@_previewItem" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_tourActive)
+    {
+        <div class="tour-backdrop" @onclick="CloseTour">
+            <div class="tour-modal" @onclick:stopPropagation="true">
+                <button class="tour-modal__close" @onclick="CloseTour" aria-label="Close tour">✕</button>
+
+                @{ var step = TourSteps[_tourStep]; }
+
+                <div class="tour-step">
+                    <div class="tour-step__icon">@step.Icon</div>
+                    <span class="tour-step__location">@step.Location</span>
+                    <h4 class="tour-step__title">@step.Title</h4>
+                    <p class="tour-step__desc">@step.Description</p>
+                </div>
+
+                <div class="tour-progress">
+                    @for (int i = 0; i < TourSteps.Length; i++)
+                    {
+                        int idx = i;
+                        <button class="tour-dot @(i == _tourStep ? "tour-dot--active" : "")"
+                                @onclick="() => _tourStep = idx"
+                                aria-label="Step @(i+1)" />
+                    }
+                </div>
+
+                <div class="tour-nav">
+                    <button class="btn btn-outline-secondary btn-sm"
+                            @onclick="PrevStep"
+                            disabled="@(_tourStep == 0)">← Prev</button>
+                    <span class="tour-nav__count">@(_tourStep + 1) / @TourSteps.Length</span>
+                    @if (_tourStep < TourSteps.Length - 1)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="NextStep">Next →</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success btn-sm" @onclick="CloseTour">Got it ✓</button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string SessionId { get; set; } = "";
+    [Inject] private ISessionService Sessions { get; set; } = default!;
+    [Inject] private IJiraService JiraService { get; set; } = default!;
+    [Inject] private IUserPreferenceService UserPrefs { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private PokerSession? PokerSessionData { get; set; }
+    private string? MyVote { get; set; }
+    private string? _myEmoji;
+    private string _participantSearch = "";
+    private bool NotFound { get; set; }
+    private bool _myHandRaised;
+    private bool _roleChosen;
+    private bool _isObserver;
+    private string _userName = "";
+    private JiraItem? _previewItem;
+    private bool _isNudged;
+    private bool _tourActive;
+    private int _tourStep;
+    private string _addItemInput = "";
+    private bool _addItemLoading;
+    private string? _addItemError;
+    private HashSet<string> _sessionStatusFilter = [];
+    private HashSet<string> _sessionTypeFilter = [];
+    private List<string> _sessionAllStatuses = [];
+    private List<string> _sessionAllTypes = [];
+    private string CurrentUserId { get; set; } = "";
+    private DotNetObjectReference<Session>? _dotNetRef;
+
+    private int VotedCount => (PokerSessionData?.Participants.Count(p => p.HasVoted && !p.IsObserver) ?? 0) +
+                               (PokerSessionData?.HostHasVoted == true ? 1 : 0);
+    private int TotalCount => (PokerSessionData?.Participants.Count(p => !p.IsObserver) ?? 0) + 1;
+
+    private IEnumerable<JiraItem> ParticipantOrderedItems => PokerSessionData?.Items
+        .Select((item, idx) => (item, idx))
+        .Where(x => (string.IsNullOrEmpty(_participantSearch) ||
+                     x.item.Key.Contains(_participantSearch, StringComparison.OrdinalIgnoreCase) ||
+                     x.item.Summary.Contains(_participantSearch, StringComparison.OrdinalIgnoreCase)) &&
+                    (_sessionStatusFilter.Count == 0 || _sessionStatusFilter.Contains(x.item.Status)) &&
+                    (_sessionTypeFilter.Count == 0 || _sessionTypeFilter.Contains(x.item.IssueType ?? "")))
+        .OrderByDescending(x => PokerSessionData.PriorityItems.Contains(x.item.Key))
+        .ThenBy(x => x.idx)
+        .Select(x => x.item) ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState auth = await AuthState;
+        CurrentUserId =
+            auth.User.FindFirst("oid")?.Value ??
+            auth.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value ??
+            auth.User.FindFirst("sub")?.Value ?? "";
+        string rawName =
+            auth.User.FindFirst("name")?.Value ??
+            auth.User.FindFirst("preferred_username")?.Value ?? "Unknown";
+        _userName = FormatDisplayName(rawName);
+
+        PokerSession? session = Sessions.GetSession(SessionId);
+        if (session == null)
+        {
+            NotFound = true;
+            return;
+        }
+
+        Sessions.SessionChanged += OnSessionChanged;
+    }
+
+    private void JoinAs(bool isObserver)
+    {
+        _isObserver = isObserver;
+        _roleChosen = true;
+        Sessions.JoinSession(SessionId, CurrentUserId, _userName, isObserver);
+        PokerSessionData = Sessions.GetMaskedSession(SessionId);
+        InitSessionFilters();
+
+        if (!UserPrefs.HasSeenParticipantGuide(CurrentUserId))
+        {
+            _tourStep = 0;
+            _tourActive = true;
+            UserPrefs.MarkParticipantGuideSeen(CurrentUserId);
+        }
+    }
+
+    private void SwitchRole()
+    {
+        _isObserver = !_isObserver;
+        if (_isObserver) MyVote = null;
+        Sessions.SetObserverMode(SessionId, CurrentUserId, _isObserver);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("keyboardVoting.init", _dotNetRef);
+            await JS.InvokeVoidAsync("columnResizer.init", ".session-layout");
+        }
+    }
+
+    [JSInvokable]
+    public void HandleVoteKey(string key)
+    {
+        if (_isObserver || PokerSessionData?.CurrentItem == null || PokerSessionData.VotesRevealed)
+        {
+            return;
+        }
+        if (int.TryParse(key, out int idx) && idx >= 1 && idx <= StoryPoints.Values.Length)
+        {
+            CastVote(StoryPoints.Values[idx - 1]);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnSessionChanged(string sessionId)
+    {
+        if (!sessionId.Equals(SessionId, StringComparison.OrdinalIgnoreCase)) return;
+        PokerSession? updated = Sessions.GetMaskedSession(SessionId);
+        if (updated == null) { NotFound = true; InvokeAsync(StateHasChanged); return; }
+
+        Participant? me = updated.Participants.FirstOrDefault(p => p.Id == CurrentUserId);
+        if (me?.HasVoted == false) MyVote = null;
+        _myHandRaised = me?.HandRaised ?? false;
+        _isObserver = me?.IsObserver ?? _isObserver;
+        bool wasNudged = _isNudged;
+        _isNudged = me?.IsNudged ?? false;
+        if (_isNudged && !wasNudged)
+            _ = JS.InvokeVoidAsync("nudgeSound.play");
+
+        PokerSessionData = updated;
+        InitSessionFilters(addNewOnly: true);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void CastVote(string value)
+    {
+        MyVote = value;
+        _isNudged = false;
+        Sessions.Vote(SessionId, CurrentUserId, value);
+    }
+
+    private void PickEmoji(string? emoji)
+    {
+        _myEmoji = emoji;
+        Sessions.SetEmoji(SessionId, CurrentUserId, emoji);
+    }
+
+    private void InitSessionFilters(bool addNewOnly = false)
+    {
+        List<string> statuses = PokerSessionData?.Items
+            .Select(i => i.Status).Where(s => !string.IsNullOrEmpty(s))
+            .Distinct().OrderBy(s => s).ToList() ?? [];
+        List<string> types = PokerSessionData?.Items
+            .Select(i => i.IssueType ?? "").Where(t => !string.IsNullOrEmpty(t))
+            .Concat(["Bug", "Story", "Task"]).Distinct().OrderBy(t => t).ToList() ?? [];
+
+        if (!addNewOnly)
+        {
+            _sessionAllStatuses = statuses;
+            _sessionAllTypes = types;
+            _sessionStatusFilter = [.. statuses];
+            _sessionTypeFilter = [.. types];
+        }
+        else
+        {
+            foreach (string s in statuses.Where(s => !_sessionAllStatuses.Contains(s)))
+            {
+                _sessionAllStatuses.Add(s);
+                _sessionStatusFilter.Add(s);
+            }
+            foreach (string t in types.Where(t => !_sessionAllTypes.Contains(t)))
+            {
+                _sessionAllTypes.Add(t);
+                _sessionTypeFilter.Add(t);
+            }
+        }
+    }
+
+    private void ToggleSessionStatus(string status)
+    {
+        if (!_sessionStatusFilter.Remove(status)) _sessionStatusFilter.Add(status);
+    }
+
+    private void ToggleSessionType(string type)
+    {
+        if (!_sessionTypeFilter.Remove(type)) _sessionTypeFilter.Add(type);
+    }
+
+    private static string IssueTypeEmoji(string t) => t switch
+    {
+        "Bug" => "🐛", "Story" => "📖", "Task" => "✅", _ => ""
+    };
+
+    private static string IssueTypeBadgeClass(string t) => t switch
+    {
+        "Bug" => "issue-type-badge--bug",
+        "Story" => "issue-type-badge--story",
+        "Task" => "issue-type-badge--task",
+        _ => "issue-type-badge"
+    };
+
+    private void OpenPreview(JiraItem item) => _previewItem = item;
+    private void ClosePreview() => _previewItem = null;
+
+    private record TourStep(string Icon, string Title, string Description, string Location);
+
+    private static readonly TourStep[] TourSteps =
+    [
+        new("📋", "Sprint Items",
+            "The left panel lists all items loaded for this session. Click any row to open a full preview showing description, status, assignee, sprint, and more.",
+            "Left panel"),
+        new("🔗", "Add Items by Link",
+            "Paste any JIRA URL or issue key (e.g. PROJ-123) into the input at the top of the items list and press + to add items that aren't already loaded.",
+            "Left panel"),
+        new("❗", "Mark Priority",
+            "Click the ❗ flag on any item to mark it as a priority. Priority items float to the top of the list so the host knows what to vote on first.",
+            "Left panel"),
+        new("🗳️", "Casting Your Vote",
+            "When the host selects an item, the voting deck appears here. Click a card or press keys 1–7 on your keyboard to cast your vote. Your vote stays hidden until the host reveals.",
+            "Center"),
+        new("👋", "Nudge",
+            "If the host thinks you've forgotten to vote, you may receive a nudge — a sound and a flashing banner reminding you to cast your vote.",
+            "Center"),
+        new("👁️", "Voter vs Observer",
+            "Use the Role toggle in the right sidebar to switch between Voter and Observer at any time. Observers watch the session without casting votes.",
+            "Right sidebar"),
+        new("✋", "Raise Your Hand",
+            "Have a question or want to discuss something? Press Raise Hand — the host gets an instant sound alert and sees your name highlighted.",
+            "Right sidebar"),
+        new("👥", "Participants",
+            "The bottom of the right sidebar shows everyone in the session. ✓ means they've voted, ... means they're still thinking, and 👁 means they're observing.",
+            "Right sidebar"),
+    ];
+
+    private void StartTour() { _tourStep = 0; _tourActive = true; }
+    private void CloseTour() => _tourActive = false;
+    private void NextStep() { if (_tourStep < TourSteps.Length - 1) _tourStep++; }
+    private void PrevStep() { if (_tourStep > 0) _tourStep--; }
+
+    private static string? ParseJiraKey(string input)
+    {
+        System.Text.RegularExpressions.Match m =
+            System.Text.RegularExpressions.Regex.Match(input.Trim(), @"[A-Z]+-\d+");
+        return m.Success ? m.Value : null;
+    }
+
+    private async Task OnAddItemKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddItemByLink();
+    }
+
+    private async Task AddItemByLink()
+    {
+        string? key = ParseJiraKey(_addItemInput);
+        if (key == null)
+        {
+            _addItemError = "Could not find a JIRA key (e.g. PROJ-123) in the input.";
+            return;
+        }
+        if (PokerSessionData?.Items.Any(i => i.Key == key) == true)
+        {
+            _addItemError = $"{key} is already in the list.";
+            return;
+        }
+
+        _addItemLoading = true;
+        _addItemError = null;
+        StateHasChanged();
+
+        try
+        {
+            JiraItem? item = await JiraService.GetItemByKeyAsync(key);
+            if (item == null)
+            {
+                _addItemError = $"Could not load {key} from JIRA. Check the key and your connection.";
+                return;
+            }
+            Sessions.AddItem(SessionId, CurrentUserId, item);
+            _addItemInput = "";
+        }
+        catch (Exception ex)
+        {
+            _addItemError = ex.Message;
+        }
+        finally
+        {
+            _addItemLoading = false;
+        }
+    }
+
+    private void TogglePriority(string itemKey) =>
+        Sessions.ToggleItemPriority(SessionId, CurrentUserId, itemKey);
+
+    private void RaiseHand()
+    {
+        _myHandRaised = true;
+        Sessions.SetHandRaised(SessionId, CurrentUserId, true);
+    }
+
+    private void LowerHand()
+    {
+        _myHandRaised = false;
+        Sessions.SetHandRaised(SessionId, CurrentUserId, false);
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        string[] parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..1].ToUpperInvariant()
+            : $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    private static string FormatDisplayName(string? fullName) =>
+        string.IsNullOrWhiteSpace(fullName) ? "Unknown" : fullName.Trim();
+
+    public async ValueTask DisposeAsync()
+    {
+        Sessions.SessionChanged -= OnSessionChanged;
+        Sessions.LeaveSession(SessionId, CurrentUserId);
+        try
+        {
+            await JS.InvokeVoidAsync("keyboardVoting.dispose");
+            await JS.InvokeVoidAsync("columnResizer.dispose");
+        }
+        catch (JSDisconnectedException) { }
+        _dotNetRef?.Dispose();
+    }
+}

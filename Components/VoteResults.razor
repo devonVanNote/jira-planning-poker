@@ -1,0 +1,139 @@
+@if (Session?.VotesRevealed == true)
+{
+    <div class="vote-results">
+        <h5>Votes</h5>
+        <div class="vote-results__cards">
+            @foreach (Participant p in Session.Participants.Where(p => p.HasVoted))
+            {
+                <div class="vote-result-item">
+                    <div class="vote-result-item__card">@p.Vote</div>
+                    @if (!string.IsNullOrEmpty(p.Emoji))
+                    {
+                        <div class="vote-result-item__emoji">@p.Emoji</div>
+                    }
+                    <div class="vote-result-item__name">@p.Name</div>
+                </div>
+            }
+            @if (Session.HostHasVoted)
+            {
+                <div class="vote-result-item">
+                    <div class="vote-result-item__card host-card">@Session.HostVote</div>
+                    @if (!string.IsNullOrEmpty(Session.HostEmoji))
+                    {
+                        <div class="vote-result-item__emoji">@Session.HostEmoji</div>
+                    }
+                    <div class="vote-result-item__name">@Session.HostName</div>
+                </div>
+            }
+        </div>
+
+        @{
+            List<decimal> numericVotes = Session.Participants
+                .Where(p => p.HasVoted && p.Vote != null)
+                .Select(p => ParseVote(p.Vote!))
+                .Concat(Session.HostHasVoted && Session.HostVote != null
+                    ? [ParseVote(Session.HostVote)]
+                    : Array.Empty<decimal?>())
+                .Where(v => v.HasValue)
+                .Select(v => v!.Value)
+                .ToList();
+
+            decimal? avg = numericVotes.Count > 0 ? numericVotes.Average() : null;
+        }
+
+        @if (numericVotes.Count > 0)
+        {
+            <div class="vote-results__stats">
+                <div class="stat">
+                    <span class="stat__label">Avg</span>
+                    <span class="stat__value">@avg!.Value.ToString("F1")</span>
+                </div>
+                <div class="stat">
+                    <span class="stat__label">Min</span>
+                    <span class="stat__value">@numericVotes.Min()</span>
+                </div>
+                <div class="stat">
+                    <span class="stat__label">Max</span>
+                    <span class="stat__value">@numericVotes.Max()</span>
+                </div>
+            </div>
+        }
+
+        @if (avg > 5 && !_splitDismissed)
+        {
+            <div class="split-suggestion">
+                <div class="split-suggestion__body">
+                    <span class="split-suggestion__icon">✂️</span>
+                    <div>
+                        <strong>Consider splitting this ticket.</strong>
+                        <span class="split-suggestion__detail"> An average of @avg!.Value.ToString("F1") points suggests high complexity — breaking it into smaller stories may help the team align and deliver faster.</span>
+                    </div>
+                </div>
+                <button class="split-suggestion__dismiss" @onclick="() => _splitDismissed = true" aria-label="Dismiss">✕</button>
+            </div>
+        }
+
+        @if (IsHost)
+        {
+            <div class="agreed-points">
+                <label class="form-label fw-semibold">Set Agreed Points:</label>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    @foreach (var v in StoryPoints.Values.Where(x => x != "?"))
+                    {
+                        <button class="btn btn-sm @(AgreedValue == v ? "btn-success" : "btn-outline-secondary")"
+                                @onclick="() => SelectAgreed(v)">@v</button>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(AgreedValue))
+                {
+                    <div class="save-points-row mt-2">
+                        <button class="btn btn-success" @onclick="SaveAgreed">
+                            Save @AgreedValue points
+                        </button>
+                        <span class="save-points-hint">
+                            This will save the points to the JIRA item. You can select a different number and click save again to update the points.
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(Session.AgreedPoints))
+        {
+            <div class="agreed-result">
+                ✅ Agreed: <strong>@Session.AgreedPoints points</strong>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public PokerSession? Session { get; set; }
+    [Parameter] public bool IsHost { get; set; }
+    [Parameter] public EventCallback<string> OnAgreedPoints { get; set; }
+
+    private string? AgreedValue { get; set; }
+    private bool _splitDismissed;
+
+    protected override void OnParametersSet()
+    {
+        // reset dismissal each time a fresh reveal happens (VotesRevealed just became true)
+        if (Session?.VotesRevealed == true && AgreedValue == null)
+            _splitDismissed = false;
+    }
+
+    private void SelectAgreed(string v) => AgreedValue = v;
+
+    private async Task SaveAgreed()
+    {
+        if (!string.IsNullOrEmpty(AgreedValue))
+            await OnAgreedPoints.InvokeAsync(AgreedValue);
+    }
+
+    private static decimal? ParseVote(string v) => v switch
+    {
+        "½" => 0.5m,
+        "?" or "☕" or "voted" => null,
+        _ => decimal.TryParse(v, out decimal n) ? n : null
+    };
+}

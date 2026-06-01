@@ -234,6 +234,7 @@
     [Inject] private IJiraService JiraService { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private IConfiguration Config { get; set; } = default!;
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private int _step = 1;
@@ -254,13 +255,15 @@
     private bool _addLoading;
     private string? _addError;
 
-    private static readonly List<string> DefaultCheckedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
-    private static readonly List<string> PinnedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
     private static readonly List<string> PinnedIssueTypes = ["Bug", "Story", "Task"];
+
+    private List<string> PriorityStatuses =>
+        Config.GetSection("Jira:PriorityStatuses").Get<string[]>()?.ToList()
+        ?? ["Ready for Sprint", "Approved", "Estimation"];
 
     private List<string> AllStatuses => _allItems
         .Select(i => i.Status).Where(s => !string.IsNullOrEmpty(s))
-        .Concat(PinnedStatuses).Distinct().OrderBy(s => s).ToList();
+        .Concat(PriorityStatuses).Distinct().OrderBy(s => s).ToList();
 
     private List<string> AllIssueTypes => _allItems
         .Select(i => i.IssueType ?? "").Where(t => !string.IsNullOrEmpty(t))
@@ -297,7 +300,7 @@
         {
             _allItems = await JiraService.GetItemsAsync(
                 team: string.IsNullOrEmpty(_selectedTeam) ? null : _selectedTeam);
-            _selectedStatuses = [.. DefaultCheckedStatuses];
+            _selectedStatuses = [.. PriorityStatuses];
             _selectedIssueTypes = [.. AllIssueTypes];
             _selectedItems = _selectedItems.Where(s => _allItems.Any(a => a.Key == s.Key)).ToList();
         }

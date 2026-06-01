@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using PlanningPoker.Components;
+using PlanningPoker.Models;
 using PlanningPoker.Services;
 using System.Net.Http.Headers;
 using System.Text;
@@ -43,6 +44,10 @@ builder.Services.AddHttpClient<IJiraService, JiraService>(client =>
         Convert.ToBase64String(Encoding.ASCII.GetBytes(builder.Configuration["Jira:ApiSecret"]!)));
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });
+
+string[] storyPoints = builder.Configuration.GetSection("Sessions:StoryPoints").Get<string[]>()
+    ?? ["1", "2", "3", "5", "8", "13", "☕"];
+StoryPoints.Initialize(storyPoints);
 
 WebApplication app = builder.Build();
 

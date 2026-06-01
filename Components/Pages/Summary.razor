@@ -117,12 +117,13 @@ else
 
     protected override void OnInitialized()
     {
-        List<JiraItem>? items = Sessions.ConsumeSummary(SessionId);
+        (string? name, List<JiraItem>? items) = Sessions.ConsumeSummary(SessionId);
         if (items == null || items.Count == 0)
         {
             Navigation.NavigateTo("/");
             return;
         }
+        _sessionName = name;
         _items = items;
     }
 

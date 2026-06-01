@@ -56,7 +56,7 @@ else
                     @(Copied ? "Copied ✓" : "Copy Session Link")
                 </button>
             </div>
-            <button class="btn btn-sm btn-danger ms-3" @onclick="EndSession">
+            <button class="btn btn-sm btn-danger ms-3" @onclick="() => _confirmEndSession = true">
                 End Session
             </button>
         </div>
@@ -297,6 +297,20 @@ else
         </div>
     </div>
 
+    @if (_confirmEndSession)
+    {
+        <div class="confirm-backdrop" @onclick="() => _confirmEndSession = false">
+            <div class="confirm-modal" @onclick:stopPropagation="true">
+                <h5 class="confirm-modal__title">End Session?</h5>
+                <p class="confirm-modal__body">Voting will stop for all participants. Items with agreed points will appear in the summary.</p>
+                <div class="confirm-modal__actions">
+                    <button class="btn btn-outline-secondary" @onclick="() => _confirmEndSession = false">Keep Going</button>
+                    <button class="btn btn-danger" @onclick="EndSession">End Session</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_hostTourActive)
     {
         <div class="tour-backdrop" @onclick="CloseHostTour">
@@ -367,6 +381,7 @@ else
     private bool _hostIsObserver;
     private bool _hostTourActive;
     private int _hostTourStep;
+    private bool _confirmEndSession;
     private string UserId { get; set; } = "";
     private string? _jiraStatus;
     private bool _jiraSuccess;
@@ -636,12 +651,6 @@ else
         Sessions.Vote(SessionId, UserId, value);
     }
 
-    private void PickEmoji(string? emoji)
-    {
-        _hostEmoji = emoji;
-        Sessions.SetEmoji(SessionId, UserId, emoji);
-    }
-
     private void RevealVotes() => Sessions.RevealVotes(SessionId, UserId);
 
     private void ResetVoting()
@@ -699,7 +708,7 @@ else
 
         if (pointed.Count > 0)
         {
-            Sessions.StoreSummary(SessionId, pointed);
+            Sessions.StoreSummary(SessionId, pointed, Session?.Name ?? "");
             Sessions.Remove(SessionId);
             Navigation.NavigateTo($"/summary/{SessionId}");
         }

@@ -66,7 +66,7 @@
                                         {
                                             <a href="host/@session.Id" class="btn btn-sm btn-primary">Rejoin</a>
                                             <button class="btn btn-sm btn-outline-danger"
-                                                    @onclick="() => CancelSession(session.Id)">
+                                                    @onclick="() => _cancelConfirmSessionId = session.Id">
                                                 Cancel
                                             </button>
                                         }
@@ -95,6 +95,19 @@
                     </div>
                 </div>
             }
+            @if (_cancelConfirmSessionId != null)
+            {
+                <div class="confirm-backdrop" @onclick="() => _cancelConfirmSessionId = null">
+                    <div class="confirm-modal" @onclick:stopPropagation="true">
+                        <h5 class="confirm-modal__title">Cancel Session?</h5>
+                        <p class="confirm-modal__body">This will end the session for all participants. Any in-progress voting will be lost.</p>
+                        <div class="confirm-modal__actions">
+                            <button class="btn btn-outline-secondary" @onclick="() => _cancelConfirmSessionId = null">Keep Session</button>
+                            <button class="btn btn-danger" @onclick="ConfirmCancel">Cancel Session</button>
+                        </div>
+                    </div>
+                </div>
+            }
         </Authorized>
         <NotAuthorized>
             <div class="login-prompt">
@@ -117,6 +130,7 @@
     private string SessionId { get; set; } = "";
     private string _userId = "";
     private List<PokerSession> _activeSessions = [];
+    private string? _cancelConfirmSessionId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -142,9 +156,13 @@
     private void RefreshSessions() =>
         _activeSessions = [.. Sessions.GetAll().OrderByDescending(s => s.CreatedAt)];
 
-    private void CancelSession(string sessionId)
+    private void ConfirmCancel()
     {
-        Sessions.Remove(sessionId);
+        if (_cancelConfirmSessionId != null)
+        {
+            Sessions.Remove(_cancelConfirmSessionId);
+            _cancelConfirmSessionId = null;
+        }
     }
 
     private void JoinSession()

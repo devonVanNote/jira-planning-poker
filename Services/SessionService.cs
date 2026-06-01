@@ -7,7 +7,7 @@ namespace PlanningPoker.Services;
 public class SessionService : ISessionService
 {
     private readonly ConcurrentDictionary<string, PokerSession> _sessions = new();
-    private readonly ConcurrentDictionary<string, List<JiraItem>> _summaries = new();
+    private readonly ConcurrentDictionary<string, (string Name, List<JiraItem> Items)> _summaries = new();
     private readonly string _filePath;
     private readonly object _writeLock = new();
     private readonly ILogger<SessionService> _logger;
@@ -382,12 +382,12 @@ public class SessionService : ISessionService
         SessionChanged?.Invoke(id.ToUpper());
     }
 
-    public void StoreSummary(string sessionId, List<JiraItem> pointedItems) =>
-        _summaries[sessionId.ToUpper()] = pointedItems;
+    public void StoreSummary(string sessionId, List<JiraItem> pointedItems, string sessionName = "") =>
+        _summaries[sessionId.ToUpper()] = (sessionName, pointedItems);
 
-    public List<JiraItem>? ConsumeSummary(string sessionId)
+    public (string? Name, List<JiraItem>? Items) ConsumeSummary(string sessionId)
     {
-        _summaries.TryRemove(sessionId.ToUpper(), out List<JiraItem>? items);
-        return items;
+        _summaries.TryRemove(sessionId.ToUpper(), out (string Name, List<JiraItem> Items) entry);
+        return entry == default ? (null, null) : (entry.Name, entry.Items);
     }
 }

@@ -617,11 +617,12 @@ public class SessionServiceTests : IDisposable
     {
         var svc = CreateService();
         var items = new List<JiraItem> { new() { Key = "X-1" } };
-        svc.StoreSummary("sess1", items);
-        var result = svc.ConsumeSummary("sess1");
+        svc.StoreSummary("sess1", items, "Sprint 1");
+        var (name, result) = svc.ConsumeSummary("sess1");
         Assert.NotNull(result);
         Assert.Single(result);
         Assert.Equal("X-1", result[0].Key);
+        Assert.Equal("Sprint 1", name);
     }
 
     [Fact]
@@ -630,14 +631,18 @@ public class SessionServiceTests : IDisposable
         var svc = CreateService();
         svc.StoreSummary("sess1", [new JiraItem { Key = "X-1" }]);
         svc.ConsumeSummary("sess1");
-        Assert.Null(svc.ConsumeSummary("sess1"));
+        var (name, items) = svc.ConsumeSummary("sess1");
+        Assert.Null(items);
+        Assert.Null(name);
     }
 
     [Fact]
     public void ConsumeSummary_UnknownId_ReturnsNull()
     {
         var svc = CreateService();
-        Assert.Null(svc.ConsumeSummary("nonexistent"));
+        var (name, items) = svc.ConsumeSummary("nonexistent");
+        Assert.Null(items);
+        Assert.Null(name);
     }
 
     // ── Persistence ──────────────────────────────────────────────────────────

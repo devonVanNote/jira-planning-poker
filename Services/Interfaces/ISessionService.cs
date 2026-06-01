@@ -26,6 +26,6 @@ public interface ISessionService
     void SetHandRaised(string sessionId, string participantId, bool raised);
     void NudgeParticipant(string sessionId, string hostId, string participantId);
     void Remove(string id);
-    void StoreSummary(string sessionId, List<JiraItem> pointedItems);
-    List<JiraItem>? ConsumeSummary(string sessionId);
+    void StoreSummary(string sessionId, List<JiraItem> pointedItems, string sessionName = "");
+    (string? Name, List<JiraItem>? Items) ConsumeSummary(string sessionId);
 }

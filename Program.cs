@@ -10,6 +10,8 @@ using System.Text;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+ValidateRequiredConfiguration(builder.Configuration);
+
 // Static web assets (framework JS, NuGet-sourced files) are auto-enabled only in Development.
 // Explicit call required when running under any non-Production environment name (e.g. UAT).
 if (!builder.Environment.IsProduction())
@@ -39,7 +41,7 @@ builder.Services.AddSingleton<ISessionService, SessionService>();
 builder.Services.AddSingleton<IUserPreferenceService, UserPreferenceService>();
 builder.Services.AddHttpClient<IJiraService, JiraService>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Jira:BaseUrl"] ?? throw new ArgumentException("Jira:BaseUrl is missing"));
+    client.BaseAddress = new Uri(builder.Configuration["Jira:BaseUrl"]!);
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
         Convert.ToBase64String(Encoding.ASCII.GetBytes(builder.Configuration["Jira:ApiSecret"]!)));
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -74,3 +76,27 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static void ValidateRequiredConfiguration(IConfiguration config)
+{
+    var missing = new List<string>();
+
+    Check("AzureAd:TenantId");
+    Check("AzureAd:ClientId");
+    Check("AzureAd:ClientSecret");
+    Check("Jira:BaseUrl");
+    Check("Jira:ApiSecret");
+
+    if (missing.Count > 0)
+    {
+        throw new InvalidOperationException(
+            $"The following required configuration values are missing or empty:{Environment.NewLine}" +
+            string.Join(Environment.NewLine, missing.Select(k => $"  - {k}")));
+    }
+
+    void Check(string key)
+    {
+        if (string.IsNullOrWhiteSpace(config[key]))
+            missing.Add(key);
+    }
+}

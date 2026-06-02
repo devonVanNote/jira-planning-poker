@@ -1,6 +1,12 @@
-# Azure AD Setup Guide
+# Auth Setup Guide
 
-This application uses Microsoft Entra ID (Azure AD) for authentication. You need two app registrations in your Azure tenant — one for the **Server** (the web app itself) and one for the **Client** (the Blazor WASM front-end). If your tenant allows it, a single registration with both a client secret and SPA redirect URIs can work, but two separate registrations are the standard and more secure approach.
+This application ships with Microsoft Entra ID (Azure AD) as its auth provider, but it is built on standard ASP.NET Core OpenID Connect middleware and can be switched to any OIDC-compliant provider (Okta, Auth0, Google, Keycloak, etc.) with a small set of targeted changes. The Azure-specific sections below cover the default setup; [Switching to a different OIDC provider](#switching-to-a-different-oidc-provider) at the end of this file covers what to change.
+
+---
+
+## Azure Entra ID Setup
+
+You need two app registrations in your Azure tenant — one for the **Server** (the web app itself) and one for the **Client** (the Blazor WASM front-end). If your tenant allows it, a single registration with both a client secret and SPA redirect URIs can work, but two separate registrations are the standard and more secure approach.
 
 ---
 
@@ -226,3 +232,178 @@ All configuration keys can be supplied as environment variables using `__` (doub
 | `Sessions:StoragePath` | `Sessions__StoragePath` |
 
 Environment variables take precedence over `appsettings.json`, making them the recommended approach for production secrets and per-environment overrides.
+
+---
+
+## Switching to a different OIDC provider
+
+The Azure integration is confined to four places. The changes below replace it with generic ASP.NET Core OpenID Connect middleware, which works with any OIDC-compliant provider.
+
+### 1 — NuGet packages
+
+Remove the two Microsoft-specific packages:
+
+```
+dotnet remove package Microsoft.Identity.Web
+dotnet remove package Microsoft.Identity.Web.UI
+```
+
+Add the standard cookie package if it is not already present (it ships with the ASP.NET Core meta-package on .NET 8+, so this step may be a no-op):
+
+```
+dotnet add package Microsoft.AspNetCore.Authentication.OpenIdConnect
+```
+
+---
+
+### 2 — Program.cs
+
+Replace the Microsoft Identity block with standard OIDC middleware. The diff is:
+
+**Remove:**
+```csharp
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
+
+builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+
+builder.Services.PostConfigure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
+{
+    options.ResponseType = OpenIdConnectResponseType.Code;
+});
+
+builder.Services.AddControllersWithViews().AddMicrosoftIdentityUI();
+```
+
+**Add:**
+```csharp
+using Microsoft.AspNetCore.Authentication.Cookies;
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(options =>
+{
+    options.Authority    = builder.Configuration["Oidc:Authority"];
+    options.ClientId     = builder.Configuration["Oidc:ClientId"];
+    options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+    options.ResponseType = OpenIdConnectResponseType.Code;
+    options.CallbackPath = "/signin-oidc";
+    options.SaveTokens   = true;
+    options.Scope.Add("openid");
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+});
+
+builder.Services.AddControllersWithViews();
+```
+
+Also add an `AccountController` to handle sign-in and sign-out (create `Controllers/AccountController.cs`):
+
+```csharp
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Mvc;
+
+[Route("[controller]/[action]")]
+public class AccountController : Controller
+{
+    [HttpGet]
+    public IActionResult SignIn(string returnUrl = "/") =>
+        Challenge(new AuthenticationProperties { RedirectUri = returnUrl },
+                  OpenIdConnectDefaults.AuthenticationScheme);
+
+    [HttpGet]
+    public async Task<IActionResult> SignOut()
+    {
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme,
+            new AuthenticationProperties { RedirectUri = "/" });
+        return Redirect("/");
+    }
+}
+```
+
+Update `ValidateRequiredConfiguration` at the bottom of `Program.cs` to check the new keys:
+
+```csharp
+// Replace AzureAd checks with:
+Check("Oidc:Authority");
+Check("Oidc:ClientId");
+Check("Oidc:ClientSecret");
+```
+
+---
+
+### 3 — appsettings.json
+
+Replace the `AzureAd` section with an `Oidc` section:
+
+```json
+"Oidc": {
+  "Authority":    "https://<provider-domain>/",
+  "ClientId":     "",
+  "ClientSecret": ""
+}
+```
+
+The `Authority` value is provider-specific — see the table below.
+
+---
+
+### 4 — Razor components
+
+Two components hardcode the Microsoft Identity sign-in/sign-out URLs and need updating.
+
+**`Components/Layout/LoginDisplay.razor`** — change the href and the `NavigateTo` call:
+
+```razor
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <span class="login-display text-white-50 small me-2">@context.User.Identity?.Name</span>
+        <button class="btn btn-sm btn-outline-light" @onclick="SignOut">Sign out</button>
+    </Authorized>
+    <NotAuthorized>
+        <a href="Account/SignIn" class="btn btn-sm btn-outline-light">Sign in</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private void SignOut() =>
+        Navigation.NavigateTo("Account/SignOut", forceLoad: true);
+}
+```
+
+**`Components/Layout/RedirectToLogin.razor`** — update the redirect target:
+
+```razor
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo(
+            $"Account/SignIn?returnUrl={Uri.EscapeDataString(Navigation.Uri)}",
+            forceLoad: true);
+}
+```
+
+---
+
+### 5 — Provider-specific Authority values
+
+| Provider | Authority value |
+|----------|-----------------|
+| **Okta** | `https://<your-okta-domain>/oauth2/default` |
+| **Auth0** | `https://<your-tenant>.auth0.com/` |
+| **Google** | `https://accounts.google.com` |
+| **Keycloak** | `https://<host>/realms/<realm>` |
+| **Azure Entra ID** (original) | `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+
+Most providers also require you to register a redirect URI in their dashboard — use the same value you would have used for Azure: `https://<your-domain>/signin-oidc` (and `https://localhost:<port>/signin-oidc` for local dev).

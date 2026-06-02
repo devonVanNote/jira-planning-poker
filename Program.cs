@@ -15,12 +15,7 @@ bool isDemoMode = builder.Configuration.GetValue<bool>("Demo:Enabled");
 
 ValidateRequiredConfiguration(builder.Configuration, isDemoMode);
 
-// Static web assets (framework JS, NuGet-sourced files) are auto-enabled only in Development.
-// Explicit call required when running under any non-Production environment name (e.g. UAT).
-if (!builder.Environment.IsProduction())
-{
-    builder.WebHost.UseStaticWebAssets();
-}
+builder.WebHost.UseStaticWebAssets();
 
 if (isDemoMode)
 {

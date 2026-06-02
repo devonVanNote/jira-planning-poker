@@ -206,6 +206,8 @@ a:hover { text-decoration: underline; }
     font-weight: 800;
     color: var(--primary);
     margin: 0 0 0.5rem;
+    outline: none;
+    border: none;
 }
 
 .hero__subtitle {
@@ -228,7 +230,7 @@ a:hover { text-decoration: underline; }
     border-radius: var(--radius);
     padding: 1.75rem;
     box-shadow: var(--shadow);
-    border: 2px solid var(--border);
+    border: 2px solid transparent;
     transition: all 0.2s;
     display: block;
     color: var(--text);

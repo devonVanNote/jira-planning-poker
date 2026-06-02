@@ -15,7 +15,8 @@ bool isDemoMode = builder.Configuration.GetValue<bool>("Demo:Enabled");
 
 ValidateRequiredConfiguration(builder.Configuration, isDemoMode);
 
-builder.WebHost.UseStaticWebAssets();
+if (!builder.Environment.IsProduction())
+    builder.WebHost.UseStaticWebAssets();
 
 if (isDemoMode)
 {
@@ -89,7 +90,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
-app.MapStaticAssets();
 app.MapRazorPages();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

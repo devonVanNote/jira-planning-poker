@@ -33,36 +33,58 @@
     }
     else
     {
+        <div class="d-flex gap-2 mb-4">
         @if (AllStatuses.Count > 0)
         {
-            <div class="status-filter mb-1">
-                <span class="status-filter__label">Status:</span>
-                @foreach (string status in AllStatuses)
+            <div class="filter-dropdown">
+                <button class="filter-dropdown__btn" type="button" @onclick="ToggleStatusDropdown">
+                    <span class="filter-dropdown__label">Status</span>
+                    <span class="filter-dropdown__summary">@StatusSummary</span>
+                    <span class="filter-dropdown__caret">▾</span>
+                </button>
+                @if (_statusDropdownOpen)
                 {
-                    bool isChecked = _selectedStatuses.Contains(status);
-                    <label class="status-filter__option">
-                        <input type="checkbox" checked="@isChecked"
-                               @onchange="() => ToggleStatus(status)" />
-                        @status
-                    </label>
+                    <div class="filter-dropdown__backdrop" @onclick="CloseAllDropdowns"></div>
+                    <div class="filter-dropdown__panel">
+                        @foreach (string status in AllStatuses)
+                        {
+                            bool isChecked = _selectedStatuses.Contains(status);
+                            <label class="filter-dropdown__option">
+                                <input type="checkbox" checked="@isChecked"
+                                       @onchange="() => ToggleStatus(status)" />
+                                @status
+                            </label>
+                        }
+                    </div>
                 }
             </div>
         }
         @if (AllIssueTypes.Count > 0)
         {
-            <div class="status-filter mb-2">
-                <span class="status-filter__label">Type:</span>
-                @foreach (string issueType in AllIssueTypes)
+            <div class="filter-dropdown">
+                <button class="filter-dropdown__btn" type="button" @onclick="ToggleTypeDropdown">
+                    <span class="filter-dropdown__label">Type</span>
+                    <span class="filter-dropdown__summary">@TypeSummary</span>
+                    <span class="filter-dropdown__caret">▾</span>
+                </button>
+                @if (_typeDropdownOpen)
                 {
-                    bool isChecked = _selectedIssueTypes.Contains(issueType);
-                    <label class="status-filter__option">
-                        <input type="checkbox" checked="@isChecked"
-                               @onchange="() => ToggleIssueType(issueType)" />
-                        <span class="badge @IssueTypeBadgeClass(issueType)">@IssueTypeEmoji(issueType) @issueType</span>
-                    </label>
+                    <div class="filter-dropdown__backdrop" @onclick="CloseAllDropdowns"></div>
+                    <div class="filter-dropdown__panel">
+                        @foreach (string issueType in AllIssueTypes)
+                        {
+                            bool isChecked = _selectedIssueTypes.Contains(issueType);
+                            <label class="filter-dropdown__option">
+                                <input type="checkbox" checked="@isChecked"
+                                       @onchange="() => ToggleIssueType(issueType)" />
+                                <span class="badge @IssueTypeBadgeClass(issueType)">@IssueTypeEmoji(issueType) @issueType</span>
+                            </label>
+                        }
+                    </div>
                 }
             </div>
         }
+        </div>
 
         <div class="add-item-row mb-2">
             <input type="text" class="form-control form-control-sm add-item-row__input"
@@ -144,6 +166,8 @@
     private string? _addError;
     private HashSet<string> _selectedStatuses = [];
     private HashSet<string> _selectedIssueTypes = [];
+    private bool _statusDropdownOpen;
+    private bool _typeDropdownOpen;
 
     private static readonly List<string> DefaultCheckedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
     private static readonly List<string> PinnedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
@@ -224,6 +248,30 @@
             ? []
             : [.. FilteredItems];
         await OnSelectionChanged.InvokeAsync([.. SelectedItems]);
+    }
+
+    private void ToggleStatusDropdown() { _statusDropdownOpen = !_statusDropdownOpen; _typeDropdownOpen = false; }
+    private void ToggleTypeDropdown() { _typeDropdownOpen = !_typeDropdownOpen; _statusDropdownOpen = false; }
+    private void CloseAllDropdowns() { _statusDropdownOpen = false; _typeDropdownOpen = false; }
+
+    private string StatusSummary
+    {
+        get
+        {
+            if (_selectedStatuses.Count == 0 || _selectedStatuses.Count == AllStatuses.Count) return "All";
+            if (_selectedStatuses.Count <= 2) return string.Join(", ", _selectedStatuses.OrderBy(s => s));
+            return $"{_selectedStatuses.Count} selected";
+        }
+    }
+
+    private string TypeSummary
+    {
+        get
+        {
+            if (_selectedIssueTypes.Count == 0 || _selectedIssueTypes.Count == AllIssueTypes.Count) return "All";
+            if (_selectedIssueTypes.Count <= 2) return string.Join(", ", _selectedIssueTypes.OrderBy(t => t));
+            return $"{_selectedIssueTypes.Count} selected";
+        }
     }
 
     private void ToggleStatus(string status)

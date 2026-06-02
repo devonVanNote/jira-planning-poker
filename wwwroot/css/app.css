@@ -683,9 +683,91 @@ a:hover { text-decoration: underline; }
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
+    text-decoration: none;
 }
 
 .current-item__open-link:hover { color: var(--primary); }
+
+.current-item__expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.current-item__expand-btn:hover {
+    color: var(--text);
+    border-color: var(--primary);
+}
+
+/* ── Current Item Modal ───────────────────────────────────── */
+
+.ci-modal__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+}
+
+.ci-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 201;
+    width: min(760px, 92vw);
+    max-height: 85vh;
+    overflow-y: auto;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.ci-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.ci-modal__summary {
+    font-size: 1.2rem !important;
+}
+
+.ci-modal__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.ci-modal__close:hover {
+    color: var(--text);
+    border-color: var(--primary);
+}
 
 .current-item__summary {
     font-size: 1.05rem;
@@ -1627,6 +1709,92 @@ a:hover { text-decoration: underline; }
 }
 
 .status-filter__option input { cursor: pointer; }
+
+/* ── Filter Dropdowns (JiraItemPicker) ────────────────────── */
+
+.filter-dropdown {
+    position: relative;
+    flex: 1;
+}
+
+.filter-dropdown__btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--card-bg);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.filter-dropdown__btn:hover {
+    border-color: var(--primary);
+    background: var(--surface);
+}
+
+.filter-dropdown__label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.filter-dropdown__summary {
+    color: var(--text);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filter-dropdown__caret {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+.filter-dropdown__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+}
+
+.filter-dropdown__panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 101;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.5rem;
+    min-width: 160px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.filter-dropdown__option {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 5px;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.filter-dropdown__option:hover { background: var(--surface); }
+
+.filter-dropdown__option input { cursor: pointer; }
 
 .jira-item-picker__list {
     border: 2px solid var(--border);

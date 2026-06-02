@@ -5,9 +5,7 @@
     <div class="current-item">
         <div class="current-item__header">
             <div class="current-item__header-left">
-                <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__key">
-                    @Item.Key
-                </a>
+                <span class="current-item__key">@Item.Key</span>
                 @if (!string.IsNullOrEmpty(Item.IssueType))
                 {
                     <span class="badge current-item__type-badge">@Item.IssueType</span>
@@ -18,10 +16,17 @@
                         @PriorityIcon(Item.Priority) @Item.Priority
                     </span>
                 }
+                <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__open-link">
+                    Open in JIRA ↗
+                </a>
             </div>
-            <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__open-link">
-                Open in JIRA ↗
-            </a>
+            <button class="current-item__expand-btn" type="button" @onclick="() => _expanded = true" title="Expand">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+                    <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+                Expand
+            </button>
         </div>
 
         <div class="current-item__summary">@Item.Summary</div>
@@ -84,6 +89,92 @@
             </div>
         }
     </div>
+
+    @if (_expanded)
+    {
+        <div class="ci-modal__backdrop" @onclick="() => _expanded = false"></div>
+        <div class="ci-modal" role="dialog" aria-modal="true">
+            <div class="ci-modal__header">
+                <div class="current-item__header-left">
+                    <span class="current-item__key">@Item.Key</span>
+                    @if (!string.IsNullOrEmpty(Item.IssueType))
+                    {
+                        <span class="badge current-item__type-badge">@Item.IssueType</span>
+                    }
+                    @if (!string.IsNullOrEmpty(Item.Priority))
+                    {
+                        <span class="badge current-item__priority-badge priority-@(Item.Priority?.ToLower().Replace(" ", "-"))">
+                            @PriorityIcon(Item.Priority) @Item.Priority
+                        </span>
+                    }
+                    <a href="@JiraUrl" target="_blank" rel="noopener noreferrer" class="current-item__open-link">
+                        Open in JIRA ↗
+                    </a>
+                </div>
+                <button class="ci-modal__close" type="button" @onclick="() => _expanded = false" title="Close">✕</button>
+            </div>
+
+            <div class="current-item__summary ci-modal__summary">@Item.Summary</div>
+
+            <div class="current-item__fields">
+                @if (!string.IsNullOrEmpty(Item.Status))
+                {
+                    <div class="current-item__field">
+                        <span class="current-item__field-label">Status</span>
+                        <span class="badge status-badge">@Item.Status</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(Item.SprintName))
+                {
+                    <div class="current-item__field">
+                        <span class="current-item__field-label">Sprint</span>
+                        <span class="badge sprint-badge">@Item.SprintName</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(Item.AssigneeName))
+                {
+                    <div class="current-item__field">
+                        <span class="current-item__field-label">Assignee</span>
+                        <span>@Item.AssigneeName</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(Item.ReporterName))
+                {
+                    <div class="current-item__field">
+                        <span class="current-item__field-label">Reporter</span>
+                        <span>@Item.ReporterName</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(Item.CurrentPoints))
+                {
+                    <div class="current-item__field">
+                        <span class="current-item__field-label">Points</span>
+                        <strong>@Item.CurrentPoints</strong>
+                    </div>
+                }
+                @if (Item.Labels.Count > 0)
+                {
+                    <div class="current-item__field current-item__field--labels">
+                        <span class="current-item__field-label">Labels</span>
+                        <div class="current-item__labels">
+                            @foreach (string label in Item.Labels)
+                            {
+                                <span class="badge current-item__label-badge">@label</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(Item.Description))
+            {
+                <div class="current-item__description">
+                    <div class="current-item__field-label mb-1">Description</div>
+                    <div class="current-item__description-body">@((MarkupString)(Item.Description ?? ""))</div>
+                </div>
+            }
+        </div>
+    }
 }
 else
 {
@@ -94,6 +185,8 @@ else
 
 @code {
     [Parameter] public JiraItem? Item { get; set; }
+
+    private bool _expanded;
 
     private string JiraUrl => Item != null
         ? $"{(Config["Jira:BaseUrl"] ?? "").TrimEnd('/')}/browse/{Item.Key}"

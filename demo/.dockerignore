@@ -1,0 +1,9 @@
+**/.git
+**/.vs
+**/.vscode
+**/bin
+**/obj
+App_Data
+PlanningPoker.UnitTests
+*.user
+*.suo

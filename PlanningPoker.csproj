@@ -17,6 +17,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Identity.Web" Version="4.9.0" />
     <PackageReference Include="Microsoft.Identity.Web.UI" Version="4.9.0" />
+    <PackageReference Include="Profanity.Detector" Version="0.1.8" />
   </ItemGroup>
 
 </Project>

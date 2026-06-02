@@ -23,8 +23,13 @@
             <h4 class="wizard-card__title">Name your session</h4>
             <div class="mb-3">
                 <label class="form-label">Session Name <span class="text-muted small">(optional)</span></label>
-                <input type="text" class="form-control" placeholder="e.g. Sprint 42 Planning"
+                <input type="text" class="form-control @(_sessionNameError != null ? "is-invalid" : "")"
+                       placeholder="e.g. Sprint 42 Planning"
                        @bind="_sessionName" maxlength="80" />
+                @if (_sessionNameError != null)
+                {
+                    <div class="invalid-feedback">@_sessionNameError</div>
+                }
             </div>
             <div class="mb-4">
                 <label class="form-label">Team / Board</label>
@@ -239,6 +244,8 @@
 
     private int _step = 1;
     private string _sessionName = "";
+    private string? _sessionNameError;
+    private static readonly ProfanityFilter.ProfanityFilter _profanityFilter = new();
     private string _selectedTeam = "";
     private string _searchText = "";
     private List<string> _teams = [];
@@ -288,6 +295,17 @@
 
     private async Task GoToStep2()
     {
+        _sessionNameError = null;
+        if (!string.IsNullOrEmpty(_sessionName) && string.IsNullOrWhiteSpace(_sessionName))
+        {
+            _sessionNameError = "Session name cannot be only spaces.";
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(_sessionName) && _profanityFilter.ContainsProfanity(_sessionName.Trim().ToLowerInvariant()))
+        {
+            _sessionNameError = "Session name contains inappropriate language. Please choose a different name.";
+            return;
+        }
         _step = 2;
         await LoadItems();
     }

@@ -17,6 +17,16 @@
         "environmentVariables": {
           "ASPNETCORE_ENVIRONMENT": "UAT"
         }
+      },
+      "Demo": {
+        "commandName": "Project",
+        "dotnetRunMessages": true,
+        "launchBrowser": true,
+        "applicationUrl": "https://localhost:7151;http://localhost:5078",
+        "environmentVariables": {
+          "ASPNETCORE_ENVIRONMENT": "Development",
+          "Demo__Enabled": "true"
+        }
       }
     }
   }

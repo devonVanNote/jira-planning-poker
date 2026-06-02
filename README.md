@@ -50,6 +50,7 @@ Click "Cancel Session"             Participants see "Session not found"
 - **Resizable columns** — Drag the handles between panels to redistribute screen space.
 - **Active sessions on home page** — All in-progress sessions are visible on the home page. Hosts can rejoin or cancel; participants can jump straight in.
 - **Microsoft Entra ID auth** — All routes require sign-in. Identity is used to distinguish the host from participants and to attribute votes.
+- **Demo mode** — A single config flag disables auth and replaces the Jira integration with hardcoded fake issues. No credentials required; useful for screenshots, walkthroughs, and local development.
 
 ---
 
@@ -101,7 +102,9 @@ Server/
 │   ├── ISessionService.cs        # Session management interface
 │   ├── SessionService.cs         # JSON-backed session store (singleton)
 │   ├── IJiraService.cs           # Jira operations interface
-│   └── JiraService.cs            # Jira REST API client
+│   ├── JiraService.cs            # Jira REST API client
+│   ├── DemoJiraService.cs        # Hardcoded fake issues (demo mode)
+│   └── DemoAuthHandler.cs        # Always-authenticated handler (demo mode)
 └── wwwroot/
     ├── css/app.css               # All application styles
     └── js/theme.js               # Theme toggle, keyboard voting, column resizer
@@ -234,6 +237,36 @@ Jira:Teams:TeamName          = {guid}              (team GUID from Jira, one per
 
 **Writing points** — `UpdateStoryPointsAsync` calls `PUT /rest/api/3/issue/{key}` with the story points value. The primary field is `Jira:StoryPointsField`; an optional `Jira:StoryPointsFieldAlternate` can be set if your instance syncs points to a second field.
 
+### Demo Mode
+
+Setting `Demo:Enabled` to `true` starts the app in a self-contained mode with no external dependencies:
+
+| What changes | Detail |
+|---|---|
+| **Auth** | `DemoAuthHandler` replaces Azure AD. Every request is automatically authenticated as "Demo User" — no sign-in redirect, no Azure app registration needed. |
+| **Sign-out button** | Hidden in the nav bar (the demo handler would re-authenticate immediately anyway). |
+| **Jira** | `DemoJiraService` replaces the real `JiraService`. Returns 12 hardcoded issues across two sprints (Sprint 42 & 43) and a backlog, covering Stories, Bugs, and Tasks in all priority statuses. `UpdateStoryPointsAsync` is a no-op so voting works end-to-end. |
+| **Config validation** | Skipped entirely — no Azure or Jira credentials are checked on startup. |
+
+To enable:
+
+```json
+// appsettings.json  (or appsettings.Development.json)
+"Demo": {
+  "Enabled": true
+}
+```
+
+Or via environment variable:
+
+```
+Demo__Enabled=true
+```
+
+> **Do not enable demo mode in production.** It bypasses all authentication.
+
+---
+
 ### Configuration
 
 Required values (managed via `dotnet user-secrets` in development):
@@ -261,6 +294,9 @@ Required values (managed via `dotnet user-secrets` in development):
   },
   "Sessions": {
     "StoragePath": "App_Data/sessions"
+  },
+  "Demo": {
+    "Enabled": false
   }
 }
 ```
@@ -282,6 +318,8 @@ Three JS utilities live in `wwwroot/js/theme.js`:
 
 ### Building and Running
 
+**With real credentials (normal mode):**
+
 ```bash
 # Restore dependencies
 dotnet restore
@@ -294,7 +332,16 @@ dotnet user-secrets set "Jira:BaseUrl"         "https://yourcompany.atlassian.ne
 dotnet user-secrets set "Jira:ApiSecret"       "email@example.com:api_token"
 
 # Run
-dotnet run --project Server
+dotnet run
 ```
 
 The app starts on `https://localhost:5001` by default. An Azure app registration is required with a redirect URI pointing to `https://localhost:5001/signin-oidc` and a client secret generated under "Certificates & secrets."
+
+**Without credentials (demo mode):**
+
+```bash
+dotnet restore
+dotnet run --launch-profile "Demo"
+```
+
+Or set `Demo__Enabled=true` as an environment variable and run normally. No Azure registration or Jira instance required. See [Demo Mode](#demo-mode) above for what is and isn't real in this mode.

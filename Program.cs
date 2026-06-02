@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.Identity.Web;
@@ -10,7 +11,9 @@ using System.Text;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-ValidateRequiredConfiguration(builder.Configuration);
+bool isDemoMode = builder.Configuration.GetValue<bool>("Demo:Enabled");
+
+ValidateRequiredConfiguration(builder.Configuration, isDemoMode);
 
 // Static web assets (framework JS, NuGet-sourced files) are auto-enabled only in Development.
 // Explicit call required when running under any non-Production environment name (e.g. UAT).
@@ -19,19 +22,31 @@ if (!builder.Environment.IsProduction())
     builder.WebHost.UseStaticWebAssets();
 }
 
-builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
-
-// Force pure Authorization Code flow. Microsoft.Identity.Web defaults to hybrid (code id_token)
-// which requires "ID tokens" to be enabled under implicit grant in the Azure app registration.
-// Pure code flow requires a client secret but does not require implicit grant.
-builder.Services.PostConfigure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
+if (isDemoMode)
 {
-    options.ResponseType = OpenIdConnectResponseType.Code;
-});
+    builder.Services.AddAuthentication(DemoAuthHandler.SchemeName)
+        .AddScheme<AuthenticationSchemeOptions, DemoAuthHandler>(DemoAuthHandler.SchemeName, null);
+}
+else
+{
+    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+
+    // Force pure Authorization Code flow. Microsoft.Identity.Web defaults to hybrid (code id_token)
+    // which requires "ID tokens" to be enabled under implicit grant in the Azure app registration.
+    // Pure code flow requires a client secret but does not require implicit grant.
+    builder.Services.PostConfigure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
+    {
+        options.ResponseType = OpenIdConnectResponseType.Code;
+    });
+}
 
 builder.Services.AddAuthorization();
-builder.Services.AddControllersWithViews().AddMicrosoftIdentityUI();
+
+if (isDemoMode)
+    builder.Services.AddControllersWithViews();
+else
+    builder.Services.AddControllersWithViews().AddMicrosoftIdentityUI();
 builder.Services.AddRazorPages();
 
 builder.Services.AddRazorComponents()
@@ -39,13 +54,21 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddSingleton<ISessionService, SessionService>();
 builder.Services.AddSingleton<IUserPreferenceService, UserPreferenceService>();
-builder.Services.AddHttpClient<IJiraService, JiraService>(client =>
+
+if (isDemoMode)
 {
-    client.BaseAddress = new Uri(builder.Configuration["Jira:BaseUrl"]!);
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
-        Convert.ToBase64String(Encoding.ASCII.GetBytes(builder.Configuration["Jira:ApiSecret"]!)));
-    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-});
+    builder.Services.AddSingleton<IJiraService, DemoJiraService>();
+}
+else
+{
+    builder.Services.AddHttpClient<IJiraService, JiraService>(client =>
+    {
+        client.BaseAddress = new Uri(builder.Configuration["Jira:BaseUrl"]!);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes(builder.Configuration["Jira:ApiSecret"]!)));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    });
+}
 
 string[] storyPoints = builder.Configuration.GetSection("Sessions:StoryPoints").Get<string[]>()
     ?? ["1", "2", "3", "5", "8", "13", "☕"];
@@ -77,8 +100,10 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
-static void ValidateRequiredConfiguration(IConfiguration config)
+static void ValidateRequiredConfiguration(IConfiguration config, bool isDemoMode)
 {
+    if (isDemoMode) return;
+
     var missing = new List<string>();
 
     Check("AzureAd:TenantId");

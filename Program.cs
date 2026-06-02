@@ -15,7 +15,8 @@ bool isDemoMode = builder.Configuration.GetValue<bool>("Demo:Enabled");
 
 ValidateRequiredConfiguration(builder.Configuration, isDemoMode);
 
-builder.WebHost.UseStaticWebAssets();
+if (builder.Environment.IsDevelopment())
+    builder.WebHost.UseStaticWebAssets();
 
 if (isDemoMode)
 {

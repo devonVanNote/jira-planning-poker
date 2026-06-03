@@ -22,10 +22,10 @@
         <div class="wizard-card wizard-card--wide">
             <h4 class="wizard-card__title">Name your session</h4>
             <div class="mb-3">
-                <label class="form-label">Session Name <span class="text-muted small">(optional)</span></label>
+                <label class="form-label">Session Name</label>
                 <input type="text" class="form-control @(_sessionNameError != null ? "is-invalid" : "")"
                        placeholder="e.g. Sprint 42 Planning"
-                       @bind="_sessionName" maxlength="80" />
+                       @bind="_sessionName" @bind:event="oninput" maxlength="80" />
                 @if (_sessionNameError != null)
                 {
                     <div class="invalid-feedback">@_sessionNameError</div>
@@ -53,7 +53,7 @@
         <div class="wizard-summary" @onclick="() => _step = 1">
             <span class="wizard-summary__check">✓</span>
             <span>
-                <strong>@(string.IsNullOrWhiteSpace(_sessionName) ? "Untitled Session" : _sessionName)</strong>
+                <strong>@_sessionName</strong>
                 <span class="text-muted"> · @(string.IsNullOrEmpty(_selectedTeam) ? "All Boards" : _selectedTeam)</span>
             </span>
             <span class="wizard-summary__edit ms-auto">Edit</span>
@@ -296,12 +296,12 @@
     private async Task GoToStep2()
     {
         _sessionNameError = null;
-        if (!string.IsNullOrEmpty(_sessionName) && string.IsNullOrWhiteSpace(_sessionName))
+        if (string.IsNullOrWhiteSpace(_sessionName))
         {
-            _sessionNameError = "Session name cannot be only spaces.";
+            _sessionNameError = "Session name is required.";
             return;
         }
-        if (!string.IsNullOrWhiteSpace(_sessionName) && _profanityFilter.ContainsProfanity(_sessionName.Trim().ToLowerInvariant()))
+        if (_profanityFilter.ContainsProfanity(_sessionName.Trim().ToLowerInvariant()))
         {
             _sessionNameError = "Session name contains inappropriate language. Please choose a different name.";
             return;

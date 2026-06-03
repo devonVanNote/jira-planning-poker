@@ -48,6 +48,10 @@ else
                 <span class="session-header__label">Session</span>
                 <strong class="session-header__id">@PokerSessionData.Id</strong>
             </div>
+            @if (!string.IsNullOrEmpty(PokerSessionData.Name))
+            {
+                <div class="session-header__name-centered">@PokerSessionData.Name</div>
+            }
             <div class="text-white-50 small">Hosted by @PokerSessionData.HostName</div>
         </div>
 
@@ -121,6 +125,23 @@ else
                             <div class="participant-item__info">
                                 <span class="item-key">@item.Key</span>
                                 <span class="participant-item__summary">@item.Summary</span>
+                                @if (!string.IsNullOrEmpty(item.IssueType) || !string.IsNullOrEmpty(item.Status) || !string.IsNullOrEmpty(item.SprintName))
+                                {
+                                    <div class="participant-item__badges">
+                                        @if (!string.IsNullOrEmpty(item.IssueType))
+                                        {
+                                            <span class="badge @IssueTypeBadgeClass(item.IssueType)">@IssueTypeEmoji(item.IssueType) @item.IssueType</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(item.Status))
+                                        {
+                                            <span class="badge status-badge">@item.Status</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(item.SprintName))
+                                        {
+                                            <span class="badge sprint-badge">@item.SprintName</span>
+                                        }
+                                    </div>
+                                }
                             </div>
                         </div>
                     }
@@ -139,16 +160,22 @@ else
 
                 @if (PokerSessionData.CurrentItem != null)
                 {
-                    @if (!PokerSessionData.VotesRevealed)
+                    @if (PokerSessionData.VotesRevealed)
                     {
-                        @if (_isNudged && !_isObserver && MyVote == null)
-                        {
-                            <div class="nudge-banner">
-                                <span class="nudge-banner__icon">👋</span>
-                                <span>Your team is waiting for your vote!</span>
-                            </div>
-                        }
-                        @if (_isObserver)
+                        <VoteResults Session="@PokerSessionData" IsHost="false" />
+                    }
+
+                    @if (_isNudged && !_isObserver && MyVote == null && !PokerSessionData.VotesRevealed)
+                    {
+                        <div class="nudge-banner">
+                            <span class="nudge-banner__icon">👋</span>
+                            <span>Your team is waiting for your vote!</span>
+                        </div>
+                    }
+
+                    @if (_isObserver)
+                    {
+                        @if (!PokerSessionData.VotesRevealed)
                         {
                             <div class="observer-waiting">
                                 <span class="observer-waiting__icon">👁️</span>
@@ -156,9 +183,12 @@ else
                                 <p class="text-muted small">@VotedCount / @TotalCount voted</p>
                             </div>
                         }
-                        else
-                        {
-                            <div class="voting-section">
+                    }
+                    else
+                    {
+                        <div class="voting-section">
+                            @if (!PokerSessionData.VotesRevealed)
+                            {
                                 <div class="sidebar-section-title mb-3">
                                     @if (MyVote != null)
                                     {
@@ -169,17 +199,19 @@ else
                                         <span>Cast Your Vote</span>
                                     }
                                 </div>
-                                <p class="text-muted small mb-2">⌨️ Press <kbd>1</kbd>–<kbd>7</kbd> to vote by keyboard</p>
-                                <VotingDeck SelectedValue="@MyVote" OnSelect="CastVote" />
-                                <p class="text-muted small mt-2">
-                                    @VotedCount / @TotalCount voted — waiting for host to reveal
-                                </p>
-                            </div>
-                        }
-                    }
-                    else
-                    {
-                        <VoteResults Session="@PokerSessionData" IsHost="false" />
+                            }
+                            <VotingDeck SelectedValue="@MyVote" OnSelect="CastVote" />
+                            <p class="text-muted small mt-2 text-center">
+                                @if (PokerSessionData.VotesRevealed)
+                                {
+                                    <span>Voting open — cast or change your vote</span>
+                                }
+                                else
+                                {
+                                    <span>@VotedCount / @TotalCount voted — waiting for host to reveal</span>
+                                }
+                            </p>
+                        </div>
                     }
                 }
             </div>
@@ -218,7 +250,7 @@ else
                             <span class="raise-hand-active__label">Hand raised</span>
                             <button class="btn btn-sm btn-outline-secondary ms-auto"
                                     @onclick="LowerHand">
-                                Lower
+                                Lower Hand
                             </button>
                         </div>
                     }
@@ -426,7 +458,7 @@ else
     [JSInvokable]
     public void HandleVoteKey(string key)
     {
-        if (_isObserver || PokerSessionData?.CurrentItem == null || PokerSessionData.VotesRevealed)
+        if (_isObserver || PokerSessionData?.CurrentItem == null)
         {
             return;
         }

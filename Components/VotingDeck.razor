@@ -1,26 +1,96 @@
-<div class="voting-keys">
-    @for (int i = 0; i < StoryPoints.Values.Length; i++)
-    {
-        <span class="voting-key">@(i + 1)</span>
-    }
-</div>
 <div class="voting-deck">
     @for (int i = 0; i < StoryPoints.Values.Length; i++)
     {
         string value = StoryPoints.Values[i];
-        string keyLabel = (i + 1).ToString();
         <VotingCard Value="@value"
-                    KeyLabel="@keyLabel"
                     IsSelected="@(SelectedValue == value)"
-                    Disabled="@Disabled"
                     OnSelect="HandleSelect" />
+    }
+</div>
+
+<div class="voting-keys-row mt-2">
+    <button class="btn btn-link btn-sm p-0 kb-help-toggle" @onclick="() => _showHelp = !_showHelp">
+        ⓘ Key bindings
+    </button>
+    @if (_showHelp)
+    {
+        <p class="text-muted small mt-1 mb-1">Click a label to rebind it, then press any key.</p>
+    }
+    <div class="voting-keys">
+        @for (int i = 0; i < _bindings.Length; i++)
+        {
+            int pos = i;
+            bool editing = _editingPos == pos;
+            bool conflict = _conflictPos == pos;
+            <input type="text"
+                   class="voting-key-input @(conflict ? "voting-key-input--conflict" : "")"
+                   readonly
+                   value="@(editing ? "" : _bindings[pos])"
+                   placeholder="@(editing ? "…" : "")"
+                   @onclick="() => StartEdit(pos)"
+                   @onkeydown="(e) => HandleKeyDown(e, pos)"
+                   @onblur="() => CancelEdit(pos)" />
+        }
+    </div>
+    @if (_conflictMessage != null)
+    {
+        <div class="text-danger small mt-1">@_conflictMessage</div>
     }
 </div>
 
 @code {
     [Parameter] public string? SelectedValue { get; set; }
-    [Parameter] public bool Disabled { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private string[] _bindings = [];
+    private int _editingPos = -1;
+    private int _conflictPos = -1;
+    private string? _conflictMessage;
+    private bool _showHelp;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _bindings = await JS.InvokeAsync<string[]>("keyboardVoting.loadBindings", StoryPoints.Values.Length);
+            await JS.InvokeVoidAsync("keyboardVoting.setBindings", (object)_bindings);
+            StateHasChanged();
+        }
+    }
 
     private Task HandleSelect(string value) => OnSelect.InvokeAsync(value);
+
+    private void StartEdit(int pos)
+    {
+        _editingPos = pos;
+        _conflictMessage = null;
+        _conflictPos = -1;
+    }
+
+    private void CancelEdit(int pos)
+    {
+        if (_editingPos == pos) _editingPos = -1;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e, int pos)
+    {
+        if (e.Key is "Escape" or "Tab") { CancelEdit(pos); return; }
+        if (e.Key.Length != 1) return;
+
+        string key = e.Key.ToUpperInvariant();
+        int existingPos = Array.FindIndex(_bindings, b => b.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (existingPos >= 0 && existingPos != pos)
+        {
+            _conflictPos = existingPos;
+            _conflictMessage = $"'{key}' is already bound to card {existingPos + 1}.";
+            return;
+        }
+
+        _bindings[pos] = key;
+        _editingPos = -1;
+        _conflictPos = -1;
+        _conflictMessage = null;
+        await JS.InvokeVoidAsync("keyboardVoting.saveBindings", (object)_bindings);
+    }
 }

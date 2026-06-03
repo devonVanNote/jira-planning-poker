@@ -1,6 +1,12 @@
+@inject IJSRuntime JS
+
 @if (Session?.VotesRevealed == true)
 {
     <div class="vote-results">
+    @if (HasConsensus)
+    {
+        <div class="consensus-banner">🎉 Perfect consensus!</div>
+    }
         <h5>Votes</h5>
         <div class="vote-results__cards">
             @foreach (Participant p in Session.Participants.Where(p => p.HasVoted))
@@ -114,12 +120,37 @@
 
     private string? AgreedValue { get; set; }
     private bool _splitDismissed;
+    private bool _celebrationFired;
 
-    protected override void OnParametersSet()
+    private bool HasConsensus
     {
-        // reset dismissal each time a fresh reveal happens (VotesRevealed just became true)
+        get
+        {
+            if (Session?.VotesRevealed != true) return false;
+            List<string> votes = Session.Participants
+                .Where(p => p.HasVoted && !p.IsObserver && p.Vote != null && p.Vote != "voted")
+                .Select(p => p.Vote!)
+                .ToList();
+            if (Session.HostHasVoted && Session.HostVote != null && Session.HostVote != "voted")
+                votes.Add(Session.HostVote);
+            return votes.Count >= 1 && votes.Distinct().Count() == 1;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
         if (Session?.VotesRevealed == true && AgreedValue == null)
             _splitDismissed = false;
+
+        if (HasConsensus && !_celebrationFired)
+        {
+            _celebrationFired = true;
+            await JS.InvokeVoidAsync("celebrateConsensus");
+        }
+        else if (Session?.VotesRevealed == false)
+        {
+            _celebrationFired = false;
+        }
     }
 
     private void SelectAgreed(string v) => AgreedValue = v;

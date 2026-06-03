@@ -1,13 +1,17 @@
 <div class="participant-list">
     @foreach (Participant p in Participants)
     {
-        <div class="participant @(p.HasVoted && !p.IsObserver ? "participant--voted" : "") @(p.HandRaised ? "participant--hand-raised" : "") @(p.IsObserver ? "participant--observer" : "") @(p.IsNudged ? "participant--nudged" : "")">
+        <div class="participant @(p.HasVoted && !p.IsObserver ? "participant--voted" : "") @(p.HandRaised ? "participant--hand-raised" : "") @(p.IsObserver ? "participant--observer" : "") @(p.IsNudged ? "participant--nudged" : "") @(!p.IsConnected ? "participant--disconnected" : "")">
             <span class="participant__name">
                 @if (!string.IsNullOrEmpty(p.Emoji))
                 {
                     <span class="participant__emoji">@p.Emoji</span>
                 }
                 @p.Name
+                @if (!p.IsConnected)
+                {
+                    <em class="text-muted"> (left)</em>
+                }
             </span>
             @if (p.HandRaised)
             {

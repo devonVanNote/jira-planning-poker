@@ -114,7 +114,13 @@ public class SessionService : ISessionService
                 return;
             }
 
-            if (!s.Participants.Any(p => p.Id == userId))
+            Participant? existing = s.Participants.FirstOrDefault(p => p.Id == userId);
+            if (existing != null)
+            {
+                existing.IsConnected = true;
+                existing.IsNudged = false;
+            }
+            else
             {
                 s.Participants.Add(new Participant { Id = userId, Name = userName, IsObserver = isObserver });
             }
@@ -149,7 +155,13 @@ public class SessionService : ISessionService
                 return;
             }
 
-            s.Participants.RemoveAll(p => p.Id == userId);
+            Participant? p = s.Participants.FirstOrDefault(x => x.Id == userId);
+            if (p == null) return;
+
+            if (p.HasVoted)
+                p.IsConnected = false;
+            else
+                s.Participants.RemoveAll(x => x.Id == userId);
         });
     }
 
@@ -200,6 +212,7 @@ public class SessionService : ISessionService
             s.HostHasVoted = false;
             s.HostVote = null;
             s.AgreedPoints = null;
+            s.Participants.RemoveAll(p => !p.IsConnected);
             foreach (Participant p in s.Participants)
             {
                 p.HasVoted = false;
@@ -224,7 +237,7 @@ public class SessionService : ISessionService
             s.HostHasVoted = false;
             s.HostVote = null;
             s.AgreedPoints = null;
-
+            s.Participants.RemoveAll(p => !p.IsConnected);
             foreach (Participant p in s.Participants)
             {
                 p.HasVoted = false;
@@ -368,7 +381,8 @@ public class SessionService : ISessionService
                     Emoji = p.Emoji,
                     HandRaised = p.HandRaised,
                     IsObserver = p.IsObserver,
-                    IsNudged = p.IsNudged
+                    IsNudged = p.IsNudged,
+                    IsConnected = p.IsConnected
                 })]
             };
     }

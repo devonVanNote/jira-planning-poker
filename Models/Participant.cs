@@ -10,4 +10,5 @@ public class Participant
     public bool HandRaised { get; set; }
     public bool IsObserver { get; set; }
     public bool IsNudged { get; set; }
+    public bool IsConnected { get; set; } = true;
 }

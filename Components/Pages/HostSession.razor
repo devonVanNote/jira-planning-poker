@@ -43,11 +43,11 @@ else
             <div>
                 <span class="session-header__label">Session</span>
                 <strong class="session-header__id">@Session.Id</strong>
-                @if (!string.IsNullOrEmpty(Session.Name))
-                {
-                    <span class="session-header__name">@Session.Name</span>
-                }
             </div>
+            @if (!string.IsNullOrEmpty(Session.Name))
+            {
+                <div class="session-header__name-centered">@Session.Name</div>
+            }
             <div class="badge bg-warning text-dark">Host View</div>
             <div class="session-header__link ms-auto">
                 <span class="me-2 small">Share with participants:</span>
@@ -93,7 +93,7 @@ else
                         @(_jqlCopied ? "✓" : "JQL")
                     </button>
                 </div>
-                <div class="d-flex gap-2 mb-3">
+                <div class="d-flex gap-2 mb-2 align-items-start flex-wrap">
                 @if (_hostAllStatuses.Count > 0)
                 {
                     <div class="filter-dropdown">
@@ -143,6 +143,17 @@ else
                     </div>
                 }
                 </div>
+                <div class="sort-bar">
+                    @foreach (string col in new[] { "Key", "Status", "Type", "Sprint" })
+                    {
+                        int rank = _sortKeys.FindIndex(k => k.Col == col) + 1;
+                        bool isAsc = rank > 0 && _sortKeys[rank - 1].Asc;
+                        string arrow = rank > 0 ? (isAsc ? " ↑" : " ↓") : "";
+                        string sup = rank > 0 && _sortKeys.Count > 1 ? SortSuperscript(rank) : "";
+                        <button class="btn btn-sm sort-btn @(rank > 0 ? "sort-btn--active" : "")"
+                                @onclick="() => ToggleSortKey(col)">@(col + sup + arrow)</button>
+                    }
+                </div>
 
                 <div class="item-list">
                     @foreach (JiraItem item in OrderedItems)
@@ -151,7 +162,7 @@ else
                         bool isPriority = Session.PriorityItems.Contains(item.Key);
                         <div class="item-list__item @(isActive ? "item-list__item--active" : "") @(isPriority ? "item-list__item--priority" : "")"
                              @onclick="() => SelectItem(item)">
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
                                 @if (isPriority)
                                 {
                                     <span class="priority-flag" title="Priority">❗</span>
@@ -164,6 +175,18 @@ else
                                 @if (!string.IsNullOrEmpty(Session.AgreedPoints) && isActive)
                                 {
                                     <span class="badge bg-success">✓ @Session.AgreedPoints</span>
+                                }
+                                @if (!string.IsNullOrEmpty(item.IssueType))
+                                {
+                                    <span class="badge @IssueTypeBadgeClass(item.IssueType)">@IssueTypeEmoji(item.IssueType) @item.IssueType</span>
+                                }
+                                @if (!string.IsNullOrEmpty(item.Status))
+                                {
+                                    <span class="badge status-badge">@item.Status</span>
+                                }
+                                @if (!string.IsNullOrEmpty(item.SprintName))
+                                {
+                                    <span class="badge sprint-badge">@item.SprintName</span>
                                 }
                             </div>
                             <div class="item-summary">@item.Summary</div>
@@ -210,17 +233,7 @@ else
                                     <span class="badge bg-success ms-2">Voted ✓</span>
                                 }
                             </div>
-                            @if (!Session.VotesRevealed)
-                            {
-                                <p class="text-muted small mb-2">⌨️ Press <kbd>1</kbd>–<kbd>7</kbd> to vote by keyboard</p>
-                                <VotingDeck SelectedValue="@null" OnSelect="CastVote" />
-                            }
-                            else if (Session.HostHasVoted)
-                            {
-                                <div class="host-voted-display">
-                                    Your vote: <span class="vote-badge">@Session.HostVote</span>
-                                </div>
-                            }
+                            <VotingDeck SelectedValue="@HostVote" OnSelect="CastVote" />
                         </div>
                     }
 
@@ -399,6 +412,7 @@ else
     private List<string> _hostAllTypes = [];
     private bool _statusDropdownOpen;
     private bool _typeDropdownOpen;
+    private List<(string Col, bool Asc)> _sortKeys = [];
     private bool Copied { get; set; }
     private bool _jqlCopied;
     private bool _roleChosen;
@@ -417,16 +431,58 @@ else
                                (_hostIsObserver ? 0 : 1);
     private bool AnyVotesCast => VotedCount > 0;
 
-    private IEnumerable<JiraItem> OrderedItems => Session?.Items
-        .Select((item, idx) => (item, idx))
-        .Where(x => (string.IsNullOrEmpty(_hostSearch) ||
-                     x.item.Key.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase) ||
-                     x.item.Summary.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase)) &&
-                    (_hostStatusFilter.Count == 0 || _hostStatusFilter.Contains(x.item.Status)) &&
-                    (_hostTypeFilter.Count == 0 || _hostTypeFilter.Contains(x.item.IssueType ?? "")))
-        .OrderByDescending(x => Session.PriorityItems.Contains(x.item.Key))
-        .ThenBy(x => x.idx)
-        .Select(x => x.item) ?? [];
+    private IEnumerable<JiraItem> OrderedItems
+    {
+        get
+        {
+            if (Session == null) return [];
+            List<(JiraItem item, int idx)> filtered = Session.Items
+                .Select((item, idx) => (item, idx))
+                .Where(x => (string.IsNullOrEmpty(_hostSearch) ||
+                             x.item.Key.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase) ||
+                             x.item.Summary.Contains(_hostSearch, StringComparison.OrdinalIgnoreCase)) &&
+                            (_hostStatusFilter.Count == 0 || _hostStatusFilter.Contains(x.item.Status)) &&
+                            (_hostTypeFilter.Count == 0 || _hostTypeFilter.Contains(x.item.IssueType ?? "")))
+                .ToList();
+
+            filtered.Sort((a, b) =>
+            {
+                bool aPri = Session.PriorityItems.Contains(a.item.Key);
+                bool bPri = Session.PriorityItems.Contains(b.item.Key);
+                if (aPri != bPri) return bPri.CompareTo(aPri);
+                foreach ((string col, bool asc) in _sortKeys)
+                {
+                    int cmp = CompareByCol(a.item, b.item, col);
+                    if (cmp != 0) return asc ? cmp : -cmp;
+                }
+                return a.idx.CompareTo(b.idx);
+            });
+
+            return filtered.Select(x => x.item);
+        }
+    }
+
+    private static int CompareByCol(JiraItem a, JiraItem b, string col) => col switch
+    {
+        "Key"    => StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key),
+        "Status" => StringComparer.OrdinalIgnoreCase.Compare(a.Status, b.Status),
+        "Type"   => StringComparer.OrdinalIgnoreCase.Compare(a.IssueType ?? "", b.IssueType ?? ""),
+        "Sprint" => (a.SprintId ?? int.MaxValue).CompareTo(b.SprintId ?? int.MaxValue),
+        _        => 0
+    };
+
+    private void ToggleSortKey(string col)
+    {
+        int idx = _sortKeys.FindIndex(k => k.Col == col);
+        if (idx < 0)
+            _sortKeys.Insert(0, (col, true));
+        else if (_sortKeys[idx].Asc)
+            _sortKeys[idx] = (col, false);
+        else
+            _sortKeys.RemoveAt(idx);
+    }
+
+    private static string SortSuperscript(int n) => n switch { 1 => "¹", 2 => "²", 3 => "³", _ => n.ToString() };
 
     private JiraItem? NextJiraItem
     {
@@ -466,7 +522,7 @@ else
     [JSInvokable]
     public void HandleVoteKey(string key)
     {
-        if (_hostIsObserver || Session?.CurrentItem == null || Session.VotesRevealed)
+        if (_hostIsObserver || Session?.CurrentItem == null)
         {
             return;
         }

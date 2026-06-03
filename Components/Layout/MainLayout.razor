@@ -11,13 +11,50 @@
                         <a href="create" class="btn btn-sm btn-outline-light">+ New Session</a>
                     </Authorized>
                 </AuthorizeView>
-                <button class="btn btn-sm btn-outline-light theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
-                    @(_isDark ? "☀️" : "🌙")
-                </button>
+                <select class="form-select form-select-sm theme-select" @bind="_theme" @bind:after="ApplyTheme">
+                    <option value="light">Light</option>
+                    <option value="lavender">Lavender</option>
+                    <option value="noctua">Noctua</option>
+                    <option value="ocean">Ocean</option>
+                    <option value="forest">Forest</option>
+                    <option value="velvet">Velvet</option>
+                    <option value="matrix">Matrix</option>
+                    <option value="custom">Custom</option>
+                </select>
                 <LoginDisplay />
             </div>
         </div>
     </nav>
+
+    @if (_theme == "custom")
+    {
+        <div class="custom-theme-bar">
+            <label class="custom-theme-bar__item">
+                <span>Accent</span>
+                <input type="color" @bind="_customAccent" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+            <label class="custom-theme-bar__item">
+                <span>Background</span>
+                <input type="color" @bind="_customBg" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+            <label class="custom-theme-bar__item">
+                <span>Card</span>
+                <input type="color" @bind="_customCard" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+            <label class="custom-theme-bar__item">
+                <span>Text</span>
+                <input type="color" @bind="_customText" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+            <label class="custom-theme-bar__item">
+                <span>Border</span>
+                <input type="color" @bind="_customBorder" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+            <label class="custom-theme-bar__item">
+                <span>Nav</span>
+                <input type="color" @bind="_customNav" @bind:event="oninput" @bind:after="UpdateCustom" />
+            </label>
+        </div>
+    }
 
     <main class="app-main container-fluid">
         @Body
@@ -25,21 +62,36 @@
 </div>
 
 @code {
-    private bool _isDark = true;
+    private string _theme = "light";
+    private string _customAccent = "#c9a84c";
+    private string _customBg    = "#0c1c2d";
+    private string _customCard  = "#112233";
+    private string _customText  = "#dde9f2";
+    private string _customBorder= "#254d72";
+    private string _customNav   = "#081524";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            string theme = await JS.InvokeAsync<string>("themeManager.init");
-            _isDark = theme != "light";
+            _theme = await JS.InvokeAsync<string>("themeManager.init");
+            if (_theme == "custom")
+            {
+                string[] cols = await JS.InvokeAsync<string[]>("themeManager.getCustomColors");
+                if (cols.Length >= 6)
+                {
+                    _customAccent = cols[0]; _customBg = cols[1]; _customCard = cols[2];
+                    _customText = cols[3]; _customBorder = cols[4]; _customNav = cols[5];
+                }
+            }
             StateHasChanged();
         }
     }
 
-    private async Task ToggleTheme()
-    {
-        string theme = await JS.InvokeAsync<string>("themeManager.toggle");
-        _isDark = theme != "light";
-    }
+    private async Task ApplyTheme() =>
+        await JS.InvokeVoidAsync("themeManager.setTheme", _theme);
+
+    private async Task UpdateCustom() =>
+        await JS.InvokeVoidAsync("themeManager.applyCustom",
+            _customAccent, _customBg, _customCard, _customText, _customBorder, _customNav);
 }

@@ -33,7 +33,7 @@
     }
     else
     {
-        <div class="d-flex gap-2 mb-4">
+        <div class="d-flex gap-2 mb-2 align-items-start flex-wrap">
         @if (AllStatuses.Count > 0)
         {
             <div class="filter-dropdown">
@@ -85,6 +85,17 @@
             </div>
         }
         </div>
+        <div class="sort-bar">
+            @foreach (string col in new[] { "Key", "Status", "Type", "Sprint" })
+            {
+                int rank = _sortKeys.FindIndex(k => k.Col == col) + 1;
+                bool isAsc = rank > 0 && _sortKeys[rank - 1].Asc;
+                string arrow = rank > 0 ? (isAsc ? " ↑" : " ↓") : "";
+                string sup = rank > 0 && _sortKeys.Count > 1 ? SortSuperscript(rank) : "";
+                <button class="btn btn-sm sort-btn @(rank > 0 ? "sort-btn--active" : "")"
+                        @onclick="() => ToggleSortKey(col)">@(col + sup + arrow)</button>
+            }
+        </div>
 
         <div class="add-item-row mb-2">
             <input type="text" class="form-control form-control-sm add-item-row__input"
@@ -129,6 +140,10 @@
                         {
                             <span class="badge bg-light text-dark me-1">@item.CurrentPoints pts</span>
                         }
+                        @if (!string.IsNullOrEmpty(item.SprintName))
+                        {
+                            <span class="badge sprint-badge me-1">@item.SprintName</span>
+                        }
                         @if (!string.IsNullOrEmpty(item.IssueType))
                         {
                             <span class="badge @IssueTypeBadgeClass(item.IssueType) me-1">@IssueTypeEmoji(item.IssueType) @item.IssueType</span>
@@ -168,6 +183,7 @@
     private HashSet<string> _selectedIssueTypes = [];
     private bool _statusDropdownOpen;
     private bool _typeDropdownOpen;
+    private List<(string Col, bool Asc)> _sortKeys = [];
 
     private static readonly List<string> DefaultCheckedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
     private static readonly List<string> PinnedStatuses = ["Approved", "Estimation", "Ready for Sprint"];
@@ -190,13 +206,54 @@
         .OrderBy(t => t)
         .ToList();
 
-    private List<JiraItem> FilteredItems => AllItems
-        .Where(i => (string.IsNullOrEmpty(SearchText) ||
-                     i.Key.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-                     i.Summary.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) &&
-                    (_selectedStatuses.Count == 0 || _selectedStatuses.Contains(i.Status)) &&
-                    (_selectedIssueTypes.Count == 0 || _selectedIssueTypes.Contains(i.IssueType ?? "")))
-        .ToList();
+    private List<JiraItem> FilteredItems
+    {
+        get
+        {
+            List<JiraItem> items = AllItems
+                .Where(i => (string.IsNullOrEmpty(SearchText) ||
+                             i.Key.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+                             i.Summary.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) &&
+                            (_selectedStatuses.Count == 0 || _selectedStatuses.Contains(i.Status)) &&
+                            (_selectedIssueTypes.Count == 0 || _selectedIssueTypes.Contains(i.IssueType ?? "")))
+                .ToList();
+            if (_sortKeys.Count > 0)
+                items.Sort((a, b) => ApplySortKeys(a, b));
+            return items;
+        }
+    }
+
+    private int ApplySortKeys(JiraItem a, JiraItem b)
+    {
+        foreach ((string col, bool asc) in _sortKeys)
+        {
+            int cmp = CompareByCol(a, b, col);
+            if (cmp != 0) return asc ? cmp : -cmp;
+        }
+        return 0;
+    }
+
+    private static int CompareByCol(JiraItem a, JiraItem b, string col) => col switch
+    {
+        "Key"    => StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key),
+        "Status" => StringComparer.OrdinalIgnoreCase.Compare(a.Status, b.Status),
+        "Type"   => StringComparer.OrdinalIgnoreCase.Compare(a.IssueType ?? "", b.IssueType ?? ""),
+        "Sprint" => (a.SprintId ?? int.MaxValue).CompareTo(b.SprintId ?? int.MaxValue),
+        _        => 0
+    };
+
+    private void ToggleSortKey(string col)
+    {
+        int idx = _sortKeys.FindIndex(k => k.Col == col);
+        if (idx < 0)
+            _sortKeys.Insert(0, (col, true));
+        else if (_sortKeys[idx].Asc)
+            _sortKeys[idx] = (col, false);
+        else
+            _sortKeys.RemoveAt(idx);
+    }
+
+    private static string SortSuperscript(int n) => n switch { 1 => "¹", 2 => "²", 3 => "³", _ => n.ToString() };
 
     protected override async Task OnInitializedAsync()
     {

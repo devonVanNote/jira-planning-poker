@@ -14,7 +14,6 @@ public class JiraService : IJiraService
     private readonly string _sprintField;
     private readonly string _teamField;
     private readonly string[] _priorityStatuses;
-    private readonly string[] _excludedStatuses;
     private readonly string? _excludedSummaryPattern;
     private readonly int _maxResults;
     private readonly string[] _fieldsArray;
@@ -29,8 +28,6 @@ public class JiraService : IJiraService
         _teamField = config["Jira:TeamField"] ?? "Team[Team]";
         _priorityStatuses = config.GetSection("Jira:PriorityStatuses").Get<string[]>()
             ?? ["Ready for Sprint", "Approved", "Estimation"];
-        _excludedStatuses = config.GetSection("Jira:ExcludedStatuses").Get<string[]>()
-            ?? ["Done", "Cancelled", "QA Pass", "QA Fail", "QA In Progress", "QA in Progress", "Missing Details", "User Stories"];
         _excludedSummaryPattern = config["Jira:ExcludedSummaryPattern"] ?? "Regression Testing";
         _maxResults = config.GetValue<int>("Jira:MaxResults", 200);
         _fieldsArray = ["summary", "status", "issuetype", "priority", "assignee", "reporter",
@@ -39,9 +36,6 @@ public class JiraService : IJiraService
 
     public string GetEffectiveJql(string? team = null)
     {
-        string statusFilter = _excludedStatuses.Length > 0
-            ? $" AND status NOT IN ({string.Join(", ", _excludedStatuses.Select(s => $"\"{s}\""))})"
-            : "";
         string summaryFilter = !string.IsNullOrEmpty(_excludedSummaryPattern)
             ? $" AND summary !~ \"{_excludedSummaryPattern}\""
             : "";
@@ -50,13 +44,13 @@ public class JiraService : IJiraService
         if (!string.IsNullOrEmpty(team))
         {
             string teamGuid = _config[$"Jira:Teams:{team}"] ?? "";
-            baseJql = $"\"{_teamField}\" = \"{teamGuid}\" AND issuetype IN (Story, Bug, Task){statusFilter}{summaryFilter} ORDER BY created DESC";
+            baseJql = $"\"{_teamField}\" = \"{teamGuid}\" AND issuetype IN (Story, Bug, Task){summaryFilter} ORDER BY created DESC";
         }
         else
         {
             string configJql = _config["Jira:DefaultJql"] ?? "";
             baseJql = string.IsNullOrWhiteSpace(configJql)
-                ? $"issuetype IN (Story, Bug, Task){statusFilter}{summaryFilter} ORDER BY created DESC"
+                ? $"issuetype IN (Story, Bug, Task){summaryFilter} ORDER BY created DESC"
                 : configJql;
         }
 

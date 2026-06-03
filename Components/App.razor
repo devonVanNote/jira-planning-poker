@@ -7,7 +7,7 @@
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="stylesheet" href="css/bootstrap.min.css" />
     <link rel="stylesheet" href="css/app.css" />
-    <script>(function(){var t=localStorage.getItem('pp-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();</script>
+    <script>(function(){var t=localStorage.getItem('pp-theme')||'light';document.documentElement.setAttribute('data-theme',t);if(t==='custom'){try{var c=JSON.parse(localStorage.getItem('pp-custom-theme')||'{}');var r=document.documentElement;if(c.accent)r.style.setProperty('--primary',c.accent);if(c.bg)r.style.setProperty('--bg',c.bg);if(c.card)r.style.setProperty('--card-bg',c.card);if(c.text)r.style.setProperty('--text',c.text);if(c.border)r.style.setProperty('--border',c.border);if(c.nav)r.style.setProperty('--nav-bg',c.nav);}catch(_){}}})();</script>
     <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)" />
 </head>
 <body>

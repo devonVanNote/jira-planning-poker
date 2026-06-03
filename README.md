@@ -2,6 +2,8 @@
 
 A real-time agile story point estimation tool built on ASP.NET Core Blazor Interactive Server (.NET 10). It integrates with Jira to pull backlog items directly into a voting session, and writes agreed story points back to Jira when the team reaches consensus.
 
+![JIRA Planning Poker Demo](demo/demo.gif)
+
 ---
 
 ## High-Level Overview
